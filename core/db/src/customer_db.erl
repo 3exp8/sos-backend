@@ -18,15 +18,6 @@
       reindex/0
     ]).
 
-
-%% DEBUG
--export([
-    find_customers_by_phone_number_riak_client/2
-    ,find_customers_by_id/1
-    ,find_customers_by_id/2
-  ]).
-
-
 -type condition()   :: {atom(), atom()}.
 -type conditions()  :: [condition()].
 -define(DOC,customer_doc).
