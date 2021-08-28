@@ -1,0 +1,17 @@
+{application, wh_mqtt_hanler,
+ [{description, "An OTP application"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {wh_mqtt_hanler_app, []}},
+  {applications,
+   [whistle,
+		 kernel,
+    stdlib,
+		crossbar
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.

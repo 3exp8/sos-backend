@@ -1,0 +1,9 @@
+{application, db,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [kernel, stdlib, lager, tirerl, sumo_db]},
+  {mod, {db_app, []}},
+  {env, []}
+ ]}.

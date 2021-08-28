@@ -1,0 +1,34 @@
+## Name of the node
+-name sos_dev@backend-01.local
+
+## Cookie for distributed erlang
+-setcookie sosdeve
+
+-smp enable
+
+
++K true
++A 5
++P 1000000
+
+-kernel inet_dist_listen_min 9000 inet_dist_listen_max 9010 
+-env ERL_MAX_PORTS 250000
+-env ERL_FULLSWEEP_AFTER 2
+-env ERL_MAX_ETS_TABLES 100000 
+
+-mnesia dump_log_write_threshold 50000
+-mnesia dc_dump_limit 40
+
+## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
+## (Disabled by default..use with caution!)
+##-heart
+
+## Enable kernel poll and a few async threads
+##+K true
+##+A 5
+
+## Increase number of concurrent ports/sockets
+##-env ERL_MAX_PORTS 4096
+
+## Tweak GC to run more often
+##-env ERL_FULLSWEEP_AFTER 10
