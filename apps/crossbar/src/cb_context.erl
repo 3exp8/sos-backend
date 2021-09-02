@@ -155,7 +155,7 @@ account_id(#cb_context{account_id = AcctId}) -> AcctId.
 role(#cb_context{roles = Roles}) -> 
     case Roles of 
       [_|_] -> ?USER_ROLE_USER;
-      _ -> ?USER_ROLE_CUSTOMER
+      _ -> ?USER_ROLE_USER
   end.
 
 roles(#cb_context{roles = Roles}) -> Roles.

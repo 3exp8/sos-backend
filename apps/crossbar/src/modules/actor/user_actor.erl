@@ -14,10 +14,11 @@
         start_actor/1,
         check_otp_rule/1,
         add_resend/1,
+        get_state/1,
         get_pid_name/1
     ]).
     
--define(AUTO_DESTROY_DURATION,10*60*1000). %10 minutes
+-define(AUTO_DESTROY_DURATION,30*60*1000). %10 minutes
 
 start_link(PhoneNumber) ->
     Name = get_pid_name(PhoneNumber),
@@ -49,6 +50,9 @@ handle_call(check_otp_rule, _From, #{
         true -> max_resend_reached
     end,
     {reply,Result, State};
+
+handle_call(get_state, _From, State) ->
+    {reply,State, State};
 
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
@@ -92,7 +96,7 @@ terminate(Reason, State) ->
 
 start_actor(PhoneNumber) -> 
     lager:info("start_actor: ~p ~n",[PhoneNumber]), 
-    case zt_util:pid_global(PhoneNumber) of 
+    case zt_util:pid_global(get_pid_name(PhoneNumber)) of 
     undefined -> 
         start_link(PhoneNumber);
     Srv -> 
@@ -102,13 +106,22 @@ start_actor(PhoneNumber) ->
 
 check_otp_rule(PhoneNumber) -> 
     lager:info("check_otp_rule: ~p ~n",[PhoneNumber]), 
-    Srv = zt_util:pid_global(PhoneNumber),
-    lager:info("check_otp_rule: pid: ~p ~n",[Srv]), 
-    gen_server:call(Srv, check_otp_rule).
+    case zt_util:pid_global(get_pid_name(PhoneNumber)) of 
+        undefined -> phone_number_notfound;
+        Srv -> 
+            lager:info("check_otp_rule: pid: ~p ~n",[Srv]), 
+            gen_server:call(Srv, check_otp_rule)
+    end.
+
+get_state(PhoneNumber) -> 
+    lager:info("get_state: ~p ~n",[PhoneNumber]), 
+    Srv = zt_util:pid_global(get_pid_name(PhoneNumber)),
+    lager:info("get_state: pid: ~p ~n",[Srv]), 
+    gen_server:call(Srv, get_state).
 
 add_resend(PhoneNumber) -> 
     lager:info("add_resend: ~p ~n",[PhoneNumber]), 
-    Srv = zt_util:pid_global(PhoneNumber),
+    Srv = zt_util:pid_global(get_pid_name(PhoneNumber)),
     lager:info("add_resend: pid: ~p ~n",[Srv]), 
     gen_server:cast(Srv, add_resend).
 

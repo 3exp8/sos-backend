@@ -33,6 +33,7 @@
          ,handle_post/3]).
 
 -export([
+          errors/0,
           permissions/0
   ]).
 
@@ -94,6 +95,7 @@ authenticate_with_method(Context, ?HTTP_GET) ->
 %% /api/v1/account/accountid
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
 authenticate(_Context, ?PATH_CONFIRM) -> true;
+authenticate(_Context, ?PATH_RESEND) -> true;
 authenticate(Context, _Path) ->
   Token = cb_context:auth_token(Context),
   app_util:oauth2_authentic(Token, Context).
@@ -249,27 +251,35 @@ handle_put(Context) ->
   IsDebug =  wh_json:get_value(<<"debug">>, ReqJson),
   FirstName = wh_json:get_value(<<"first_name">>, ReqJson, <<>>),
   LastName = wh_json:get_value(<<"last_name">>, ReqJson, <<>>),
-  Uuid = zt_util:get_uuid(),
-  UserId = <<"user", Uuid/binary>>,
+  
   LoginedUserId = cb_context:user_id(Context),
   ConfirmCode = user_handler:create_confirm_code_by_phone(PhoneNumber),
-  UserInfo = get_user_info(ReqJson),
-  UserDb = maps:merge(UserInfo, 
-                #{
-                    id => UserId,
-                    first_name => FirstName, 
-                    last_name => LastName,
-                    status => ?USER_STATUS_UNCONFIRMED, 
-                    created_by => LoginedUserId,	
-                    updated_by => LoginedUserId,
-                    confirm_code => ConfirmCode
-            }),
+  UserDb = 
+    case user_handler:find_unconfirmed_user(PhoneNumber) of 
+      notfound -> 
+          Uuid = zt_util:get_uuid(),
+          UserId = <<"user", Uuid/binary>>,
+          BasicUserInfo = get_user_info(ReqJson),
+          maps:merge(BasicUserInfo, 
+                        #{
+                            id => UserId,
+                            first_name => FirstName, 
+                            last_name => LastName,
+                            status => ?USER_STATUS_UNCONFIRMED, 
+                            created_by => LoginedUserId,	
+                            updated_by => LoginedUserId,
+                            confirm_code => ConfirmCode
+          });
+      Info -> 
+        maps:merge(Info, 
+                        #{
+                            confirm_code_created_time_dt => zt_datetime:get_now(),
+                            confirm_code => ConfirmCode
+                    })
+    end,
   user_db:save(UserDb),
   user_actor:start_actor(PhoneNumber),
-  InitRespData = #{
-        id =>  UserId,
-        phone_number => PhoneNumber
-  },
+  InitRespData = maps:with([id,phone_number],UserDb),
   RespData = 
       case IsDebug of
             <<"true">> -> 
@@ -282,7 +292,7 @@ handle_put(Context) ->
         end,
   cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_data/2, RespData}
-                                  ,{fun cb_context:set_resp_status/2, 'success'}])  .
+                                  ,{fun cb_context:set_resp_status/2, 'success'}]).
 
 %% PUT api/v1/account/accountid
 -spec handle_put(cb_context:context(), path_token()) -> cb_context:context().
@@ -488,25 +498,6 @@ Role = cb_context:role(Context),
                          ])
   end;
 
-handle_post(Context, Id, ?LOGOUT) ->
-  Role = cb_context:role(Context),
-  AccountIdDb = cb_context:account_id(Context),
-  UserId = cb_context:user_id(Context),
-  ReqJson =  cb_context:req_json(Context),
-  Token = cb_context:auth_token(Context),
-  DeviceId = wh_json:get_value(<<"device_id">>, ReqJson, <<>>),
-  Type = wh_json:get_value(<<"type">>, ReqJson, <<>>),
-  if  Role == ?USER_ROLE_ADMIN;
-    Role == ?USER_ROLE_USER ->
-      RespData = [{token, Token}],
-      cb_context:setters(Context ,[{fun cb_context:set_resp_data/2, RespData}
-                                   ,{fun cb_context:set_resp_status/2, 'success'}]);
-      true -> 
-        cb_context:setters(Context,
-                           [{fun cb_context:set_resp_error_msg/2, <<"Forbidden">>},
-                            {fun cb_context:set_resp_status/2, <<"error">>},
-                            {fun cb_context:set_resp_error_code/2, 403}])
-  end;
 
 %% POST api/v1/account/accountid/logout
 handle_post(Context, Id, ?LOGOUT) ->
@@ -517,6 +508,7 @@ handle_post(Context, Id, ?LOGOUT) ->
   Token = cb_context:auth_token(Context),
   DeviceId = wh_json:get_value(<<"device_id">>, ReqJson, <<>>),
   Type = wh_json:get_value(<<"type">>, ReqJson, <<>>),
+  lager:debug("Role: ~p~n",[Role]),
   if  Role == ?USER_ROLE_ADMIN;
     Role == ?USER_ROLE_USER ->
               access_token_mnesia_db:del_by_token(Token),
@@ -526,7 +518,7 @@ handle_post(Context, Id, ?LOGOUT) ->
                                            ,{fun cb_context:set_resp_status/2, 'success'}]);	
       true -> 
         cb_context:setters(Context,
-                           [{fun cb_context:set_resp_error_msg/2, <<"Forbidden">>},
+                           [{fun cb_context:set_resp_error_msg/2, <<"Forbidden2">>},
                             {fun cb_context:set_resp_status/2, <<"error">>},
                             {fun cb_context:set_resp_error_code/2, 403}])
   end;
@@ -594,8 +586,21 @@ validate_request(?PATH_CONFIRM, Context, ?HTTP_POST) ->
                     ,[{fun cb_context:set_resp_status/2, 'success'}]),	
             
     ValidateFuns = [ 
-      fun validate_confirm_email/2,
+      fun validate_confirm_phone_number/2,
       fun validate_confirm_code/2
+    ],
+
+    lists:foldl(fun(F, C) ->
+        F(ReqJson, C)
+    end, Context1,  ValidateFuns);
+
+  validate_request(?PATH_RESEND, Context, ?HTTP_POST) ->
+    ReqJson = cb_context:req_json(Context),
+    Context1 = cb_context:setters(Context
+                    ,[{fun cb_context:set_resp_status/2, 'success'}]),	
+            
+    ValidateFuns = [ 
+      fun validate_confirm_phone_number/2
     ],
 
     lists:foldl(fun(F, C) ->
@@ -649,7 +654,9 @@ validate_request(_AccountId, Context, ?LOGOUT, _Verb) ->
   Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),	
   ReqJson =  cb_context:req_json(Context1),
-  ValidateFuns = [fun validate_type/2],                        
+  ValidateFuns = [
+    %fun validate_type/2
+  ],                        
   lists:foldl(fun(F, C) ->
                   F(ReqJson, C)
               end, Context1,  ValidateFuns);
@@ -663,17 +670,17 @@ validate_confirm_code(ReqJson, Context) ->
   ConfirmCode = wh_json:get_value(<<"confirm_code">>, ReqJson, <<>>),
   case ConfirmCode of 
     <<>> ->
-      api_util:validate_error(Context, <<"confirm_code">>, <<"required">>, <<"Field 'confirm_code' is required">>);
+      api_util:validate_error(Context, <<"confirm_code">>, <<"required">>, <<"confirm_code_required">>);
     _ ->
       Context
   end. 
 
--spec validate_confirm_email(api_binary(), cb_context:context()) -> cb_context:context().
-validate_confirm_email(ReqJson, Context) ->
-  Val = wh_json:get_value(<<"email">>, ReqJson, <<>>),
+-spec validate_confirm_phone_number(api_binary(), cb_context:context()) -> cb_context:context().
+validate_confirm_phone_number(ReqJson, Context) ->
+  Val = wh_json:get_value(<<"phone_number">>, ReqJson, <<>>),
   case Val of 
     <<>> ->
-      api_util:validate_error(Context, <<"email">>, <<"required">>, <<"Field 'email' is required">>);
+      api_util:validate_error(Context, <<"phone_number">>, <<"required">>, <<"phone_number_required">>);
     _ ->
       Context
   end. 
@@ -714,11 +721,11 @@ validate_phone_number(ReqJson, Context) ->
   PhoneNumber = wh_json:get_value(<<"phone_number">>, ReqJson, <<>>),
   case PhoneNumber of
     <<>> ->
-      api_util:validate_error(Context, <<"phone_number">>, <<"required">>, <<"Field 'phone_number' is required">>);
+      api_util:validate_error(Context, <<"phone_number">>, <<"required">>, <<"phone_number_required">>);
     _  ->
       case re:run(zt_util:to_str(PhoneNumber), ?PHONEREGX) of 
         nomatch ->
-          api_util:validate_error(Context, <<"phone_number">>, <<"invalid">>, <<"Invalid PhoneNumber">>);
+          api_util:validate_error(Context, <<"phone_number">>, <<"invalid">>, <<"phone_number_is_invalid">>);
         _ -> 
           case user_handler:check_register_user_existed(PhoneNumber) of
             false -> Context;
@@ -734,9 +741,9 @@ validate_password(ReqJson, Context) ->
   LenPass = length(zt_util:to_str(Password)),
   case LenPass of
     0 ->
-      api_util:validate_error(Context, <<"password">>, <<"required">>, <<"Field 'password' is required">>);
+      api_util:validate_error(Context, <<"password">>, <<"required">>, <<"password_required">>);
     Val when Val < 8 ->
-      api_util:validate_error(Context, <<"password">>, <<"invalid">>, <<"Password must have at least 8 characters">>);
+      api_util:validate_error(Context, <<"password">>, <<"invalid">>, <<"password_min_8_charactor">>);
     _ -> 
       Context
   end.
@@ -807,7 +814,7 @@ get_users(QueryJson, Limit, Offset) ->
         user_db:find_by_conditions([], [{<<"sort_created_time">>, desc}|QueryJson], Limit, Offset).
 
 get_user_info(ReqJson) ->
-  Email  = wh_json:get_value(<<"email">>, ReqJson), 
+  Email  = wh_json:get_value(<<"email">>, ReqJson,<<>>), 
   PhoneNumber = wh_json:get_value(<<"phone_number">>, ReqJson),
   FirstName = wh_json:get_value(<<"first_name">>, ReqJson, <<>>),
   LastName = wh_json:get_value(<<"last_name">>, ReqJson, <<>>),
@@ -816,9 +823,9 @@ get_user_info(ReqJson) ->
   Avatar = wh_json:get_value(<<"avatar">>, ReqJson, <<>>),
   TimeZone = wh_json:get_value(<<"time_zone">>, ReqJson, <<>>),
   Password = wh_json:get_value(<<"password">>, ReqJson),
-  CreatedTime = zt_datetime:get_now(),
   {ok, Salt} = bcrypt:gen_salt(?WORKFACTOR),
   {ok, HashPass} = bcrypt:hashpw(Password, Salt),
+  CreatedTime = zt_datetime:get_now(),
   #{
       email => Email, 
       phone_number => PhoneNumber, 
@@ -830,9 +837,8 @@ get_user_info(ReqJson) ->
       avatar => Avatar, 
       time_zone => TimeZone, 
       created_time_dt => CreatedTime,
-      updated_time_dt => CreatedTime, 
-      status => ?USER_STATUS_INACTIVE, 
-      confirm_code_created_time_dt => CreatedTime
+      updated_time_dt => CreatedTime
+      
     }.
 
 get_user_info(ReqJson, Account, UserId, TimeZone, UpdateTime) ->
@@ -863,8 +869,56 @@ is_user_exist(Email) ->
   end. 
 
 get_sub_fields_accounts(User) -> 
-  Fields = [account_id, password, created_by, created_time_dt, updated_by, updated_time_dt,
+  Fields = [roles,account_id, password, created_by, created_time_dt, updated_by, updated_time_dt,
             confirm_code, confirm_code_created_time_dt] ,
   NewMap = maps:without(Fields, User),
   Res = maps:to_list(NewMap),
   proplists:substitute_aliases([], Res).
+
+errors() -> 
+  Path = <<"users">>,
+  HandlePutValidates =
+  [
+    {<<"phone_number">>, <<"required">>, <<"phone_number_required">>},
+    {<<"phone_number">>, <<"invalid">>, <<"phone_number_is_invalid">>},
+    {<<"phone_number">>, <<"invalid">>, <<"phone_number_in_use">>},
+    {<<"password">>, <<"required">>, <<"password_required">>},
+    {<<"password">>, <<"invalid">>, <<"password_min_8_charactor">>}  
+  ],
+  HandlePut = app_util:declare_api_validate(<<"put">>,Path,HandlePutValidates),
+
+  PathConfirm = ?PATH_CONFIRM,
+  Path1Confirm = <<Path/binary,"/",PathConfirm/binary>>,
+  HandlePost1ConfirmValidates =
+  [
+    {<<"phone_number">>, <<"required">>, <<"phone_number_required">>},
+    {<<"confirm_code">>, <<"required">>, <<"confirm_code_required">>},
+    {<<"confirm_code">>, <<"invalid">>, <<"confirm_code_expired">>},
+    {<<"confirm_code">>, <<"invalid">>, <<"confirm_code_not_match">>},
+    {<<"phone_number">>, <<"invalid">>, <<"phon_number_notfound">>}
+
+  ],
+  HandlePost1Confirm = app_util:declare_api_validate(<<"post">>,Path1Confirm,HandlePost1ConfirmValidates),
+
+  PathResend = ?PATH_RESEND,
+  Path1Resend = <<Path/binary,"/",PathResend/binary>>,
+  HandlePost1ResendValidates =
+  [
+    {<<"phone_number">>, <<"required">>, <<"phone_number_required">>},
+    {<<"phone_number">>, <<"invalid">>, <<"phon_number_notfound">>},
+    {<<"resend_otp">>, <<"invalid">>, <<"phon_number_notfound">>},
+    {<<"resend_otp">>, <<"invalid">>, <<"resend_too_fast">>},
+    {<<"resend_otp">>, <<"invalid">>, <<"max_resend_reached">>}
+
+    
+  ],
+  HandlePost1Resend = app_util:declare_api_validate(<<"post">>,Path1Resend, HandlePost1ResendValidates),
+
+
+  Apis = [
+    HandlePut,
+    HandlePost1Confirm,
+    HandlePost1Resend
+    
+  ],
+  app_util:create_module_validates(Apis).

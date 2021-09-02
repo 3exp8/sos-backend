@@ -14,16 +14,25 @@
 
 -export([init/0
 	,validate/1
+	,validate/2
 	,resource_exists/0
+	,resource_exists/1
 	,authenticate/1
+	,authenticate/2
 	,authorize/1
+	,authorize/2
 	,allowed_methods/0
+	,allowed_methods/1
 	,handle_get/1
+	,handle_get/2
+
 	]).
 
 -define(APIS, 
 	[
-		{<<"groups">>,cb_group}
+		{<<"groups">>,cb_group},
+		{<<"users">>,cb_user},
+		{<<"auth">>,cb_auth}
 	]
 ).
 
@@ -39,23 +48,47 @@ init() ->
 allowed_methods() ->
 	[?HTTP_GET].
 
+-spec allowed_methods(path_token()) -> http_methods().
+allowed_methods(_) ->
+	[?HTTP_GET].
+
 -spec resource_exists() -> 'true'.
 
 %% /api/v1/tax_codes/{id}
 resource_exists() -> 'true'.
 
+-spec resource_exists(path_token()) -> 'true'.
+
+%% /api/v1/tax_codes/{id}
+resource_exists(_) -> 'true'.
+
 -spec authenticate(cb_context:context()) -> boolean().
 
 authenticate(Context) ->  true.
 
+
+-spec authenticate(cb_context:context(),path_token()) -> boolean().
+
+authenticate(Context,_) ->  true.
+
 -spec authorize(cb_context:context()) -> boolean().
 authorize(Context) -> true.
+
+-spec authorize(cb_context:context(),path_token()) -> boolean().
+authorize(Context,_) -> true.
 
 -spec validate(cb_context:context() ) ->  cb_context:context().
 
 %% Validate resource : /api/v1/tax_codes/{id}
 validate(Context) ->
 	validate_request(Context, cb_context:req_verb(Context)).   
+
+
+-spec validate(cb_context:context(),path_token()) ->  cb_context:context().
+
+%% Validate resource : /api/v1/tax_codes/{id}
+validate(Context,_) ->
+	validate_request(Context, cb_context:req_verb(Context)).  
 
 handle_get({Req, Context}) -> 
 QueryJson = cb_context:query_string(Context),
@@ -78,46 +111,64 @@ QueryJson = cb_context:query_string(Context),
 					{fun cb_context:set_resp_status/2, 'success'}
 			])}
 end.
-get_list_errors()  -> 
-Modules = ?APIS,
-lists:foldl(fun({Name,Moule}, Acc) -> 
-	NewErrorMap = 
-	case erlang:function_exported(Moule,errors,0) of
-			true ->
-				Apis = Moule:errors(),
-				ApisValidates = 
-				lists:map(fun( #{
-					method := Method,
-					path := Path,
-					validate_reponses := ValidateResponsesRaw
-				}
-				) -> 
-				ValidateResponses = 
-				case ValidateResponsesRaw of 
-					{[]} -> #{};
-					_ -> ValidateResponsesRaw
-				end,
-				#{
-					method => Method,
-					path => Path,
-					validate_reponses => #{
-						data => ValidateResponses,
-						errors_data => api_util:format_error_responses([], ValidateResponsesRaw)
-					}
-				}
 
-				end,Apis),
-				#{
-					Name => ApisValidates
-				};
-			_ ->
-				lager:warning("~p:errors() is not defined ~n",[Moule]),
-				#{
-					Name => []
+handle_get({Req, Context}, Endpoint) -> 
+	RespData = get_list_errors(Endpoint),
+	lager:debug("RespData ~p~n",[RespData]),
+	{Req, 
+		cb_context:setters(Context,[
+			{fun cb_context:set_resp_data/2, RespData},
+			{fun cb_context:set_resp_status/2, 'success'}
+	])}.
+
+
+get_list_errors(Name)  -> 
+	ApiMap = maps:from_list(?APIS),
+	case maps:get(Name,ApiMap,<<>>) of 
+		<<>> ->  [];
+		Module -> list_errors_by_module(Name,Module)
+	end.
+
+list_errors_by_module(Name, Module) -> 
+	case erlang:function_exported(Module,errors,0) of
+		true ->
+			Apis = Module:errors(),
+			ApisValidates = 
+			lists:map(fun( #{
+				method := Method,
+				path := Path,
+				validate_reponses := ValidateResponsesRaw
+			}
+			) -> 
+			ValidateResponses = 
+			case ValidateResponsesRaw of 
+				{[]} -> #{};
+				_ -> ValidateResponsesRaw
+			end,
+			#{
+				method => Method,
+				path => Path,
+				validate_reponses => #{
+					data => ValidateResponses,
+					errors_data => api_util:format_error_responses([], ValidateResponsesRaw)
 				}
-	end,
-	maps:merge(Acc, NewErrorMap)
-end,#{},Modules).
+			}
+
+			end,Apis),
+			ApisValidates;
+		_ ->
+			lager:warning("~p:errors() is not defined ~n",[Module]),
+			[]
+	end.
+
+get_list_errors()  -> 
+	Modules = ?APIS,
+	lists:foldl(fun({Name,Module}, Acc) -> 
+		NewErrorMap = #{
+			Name => list_errors_by_module(Name, Module)
+		},
+		maps:merge(Acc, NewErrorMap)
+	end,#{},Modules).
 
 handle_get1({Req, Context}) ->
    Capacity = 2,

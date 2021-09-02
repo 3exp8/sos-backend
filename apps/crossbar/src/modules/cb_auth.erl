@@ -11,8 +11,11 @@
 				 ,resource_exists/0]).
 
 
--export([handle_get/1
-				 ,handle_post/1]).
+-export([
+		handle_get/1
+		,handle_post/1
+		,errors/0
+	]).
 
 init() ->
 	_ = crossbar_bindings:bind(<<"*.allowed_methods.auth">>, ?MODULE, 'allowed_methods'),
@@ -221,7 +224,7 @@ validate_grant_type(ReqJson, Context) ->
 		true ->
 			Context;
 		_ ->
-			api_util:validate_error(Context, <<"grant_type">>, <<"invalid">>, <<"Field '", <<"grant_type">>/binary, "' must be password/refresh_token/client_credentials/token.">>)
+			api_util:validate_error(Context, <<"grant_type">>, <<"invalid">>, <<"Field 'grant_type' must be password/refresh_token/client_credentials/token.">>)
 	end.
 
 
@@ -307,27 +310,17 @@ redirect_resp(RedirectUri, FragParams, Context) ->
 										 ]).
 
 
-
-% binary_join([H], _Sep) ->
-%		<<H/binary>>;
-% binary_join([H|T], Sep) ->
-%		<<H/binary, Sep/binary, (binary_join(T, Sep))/binary>>;
-% binary_join([], _Sep) ->
-%		<<>>.
-
-% to_json_term([], Acc) ->
-%		Acc;
-% to_json_term([{H, {HK, HV}} |  T], Acc) ->
-%		to_json_term(T, [{H, <<"{",HK/binary,",",HV/binary,"}">>} | Acc]);
-% to_json_term([H | T], Acc) ->
-%		to_json_term(T, [H | Acc]).
-
-
-% urlencode(Val) when is_binary(Val) ->
-%		list_to_binary(http_uri:encode(binary_to_list(Val)));
-
-% urlencode(Val) when is_integer(Val) ->
-%		list_to_binary(http_uri:encode(integer_to_list(Val)));
-
-% urlencode(Val) ->
-%		list_to_binary(http_uri:encode(Val)).
+errors() -> 
+	Path = <<"auth">>,
+	HandlePostValidates =
+		[
+			{<<"username">>, <<"required">>, <<"Field 'username' is required">>},
+			{<<"password">>, <<"required">>, <<"Field 'password' is required">>},
+			{<<"grant_type">>, <<"invalid">>, <<"Field 'grant_type' must be password/refresh_token/client_credentials/token.">>}
+	 	],
+	HandlePost = app_util:declare_api_validate(<<"post">>,Path,HandlePostValidates),
+	Apis = [
+			HandlePost
+										  
+	],
+	app_util:create_module_validates(Apis).
