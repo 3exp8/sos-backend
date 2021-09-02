@@ -61,7 +61,7 @@ authenticate_scope_user({UserId, {confirm_code, ConfirmCode}}, Ctx) ->
 	#{
 		confirm_code := ConfirmCode,
 		account_id := AccountId,
-		email := Username,
+		phone_number := Username,
 		role := Role, 
 		roles := Roles
 	}  ->
@@ -81,28 +81,38 @@ authenticate_scope_user({UserId, {confirm_code, ConfirmCode}}, Ctx) ->
 authenticate_scope_user({Username, Password}, Ctx) ->
 	%lager:info("auth_token: Ctx ~p ~n", [Ctx]),
 	DeviceInfo = proplists:get_value(device_info, Ctx, []),
-	case user_db:find_by_email(Username) of
+	case user_db:find_by_phone_number(Username) of
 	[
 	#{
 		id := UserId, 
 		account_id := AccountId, 
 		password := SecretKey, 
 		role := Role, 
-		roles := Roles, 
+		%roles := Roles, 
 		status := Status
 	}| _] when SecretKey /= <<>> ->
 		PassHash = zt_util:to_str(SecretKey),
 		{ok, ProvidedHash} = bcrypt:hashpw(Password, PassHash),
 		case PassHash == ProvidedHash of 
 		true -> 
-			if Status == ?ACTIVE ->
-				lager:info("auth_token------------------emnvn authenticate_scope_user user_id: ~p, AccountId: ~p ~n",[UserId, AccountId]),
-				% Scope = proplists:get_value(scope, Ctx, ?USER_ROLE_CUSTOMER),
-				NewCtx = [{<<"user_id">>, UserId}, {<<"account_id">>, AccountId}, {<<"role">>, Role}, {<<"roles">>, Roles}, {<<"device_info">>, DeviceInfo}],
-				lager:info("auth_token: NewCtx ~p ~n", [NewCtx]),
-				{ok, {NewCtx, Username}};
-			true ->
-				{ok, {{error, inactive}, Username}}
+			if 
+				Status == ?USER_STATUS_ACTIVE ->
+					lager:info("auth_token------------------emnvn authenticate_scope_user user_id: ~p, AccountId: ~p ~n",[UserId, AccountId]),
+					% Scope = proplists:get_value(scope, Ctx, ?USER_ROLE_CUSTOMER),
+					NewCtx = [
+						{<<"user_id">>, UserId}, 
+						%{<<"account_id">>, AccountId}, 
+						{<<"role">>, Role}, 
+						%{<<"roles">>, Roles}, 
+						{<<"device_info">>, DeviceInfo}
+					],
+					lager:info("auth_token: NewCtx ~p ~n", [NewCtx]),
+					{ok, {NewCtx, Username}};
+				Status == ?USER_STATUS_INACTIVE ->
+					{ok, {{error, inactive}, Username}};
+
+				true ->
+					{ok, {{error, notfound}, Username}}
 			end ;
 		_  ->
 			{error, badpass}

@@ -3,6 +3,7 @@
 -include("crossbar.hrl").
 -export([
       check_register_user_existed/1
+    , find_unconfirmed_user/1
     , handle_user_confirm/2
     , handle_user_resend/2
     , send_otp/2
@@ -19,6 +20,16 @@ check_register_user_existed(PhoneNumber) ->
         false;
     _ -> 
         true 
+  end.
+
+find_unconfirmed_user(PhoneNumber) -> 
+  case user_db:find_by_phone_number(PhoneNumber) of
+    [#{
+      status := ?USER_STATUS_UNCONFIRMED
+    } = Info] -> 
+      Info;
+    _ -> 
+        notfound 
   end.
 
 create_confirm_code_by_phone(PhoneNumber) -> 
@@ -39,9 +50,9 @@ handle_user_confirm(Context,
   ReqJson =  cb_context:req_json(Context),
   CurrentTimeToSecond = zt_util:timestamp_second(),
   ConfirmCode = wh_json:get_value(<<"confirm_code">>, ReqJson), 
-  ConfirmCodeCreatedTimeToSecond = zt_util:datetime_binary_to_second(ConfirmCodeCreatedTime),
+  EplasedSeconds = zt_datetime:diff_second(ConfirmCodeCreatedTime),
   if 
-    CurrentTimeToSecond - ConfirmCodeCreatedTimeToSecond > ?DATESECOND ->
+    EplasedSeconds > 120 ->
       Context2 = api_util:validate_error(Context, <<"confirm_code">>, <<"invalid">>, <<"confirm_code_expired">>),
       cb_context:setters(Context2,[
                 {fun cb_context:set_resp_error_msg/2, <<"Code Exprired">>},
@@ -72,7 +83,7 @@ handle_user_confirm(Context, [UserInfo]) ->
 
 
 handle_user_confirm(Context, _) -> 
-    Context2 = api_util:validate_error(Context, <<"phone_number">>, <<"invalid">>, <<"user_confirm_notfound">>),
+    Context2 = api_util:validate_error(Context, <<"phone_number">>, <<"invalid">>, <<"phon_number_notfound">>),
     cb_context:setters(Context2,
               [
                 {fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
@@ -112,6 +123,7 @@ handle_user_resend(Context,
                           user_handler:send_otp(PhoneNumberDb,ConfirmCode),
                           InitRespData
               end,
+          user_actor:add_resend(PhoneNumberDb),
           cb_context:setters(Context
                             ,[{fun cb_context:set_resp_data/2, RespData}
                               ,{fun cb_context:set_resp_status/2, 'success'}
@@ -130,7 +142,7 @@ handle_user_resend(Context, [UserInfo]) ->
     handle_user_resend(Context, UserInfo);
 
 handle_user_resend(Context, _) -> 
-    Context2 = api_util:validate_error(Context, <<"phone_number">>, <<"invalid">>, <<"user_resend_otp_notfound">>),
+    Context2 = api_util:validate_error(Context, <<"phone_number">>, <<"invalid">>, <<"phon_number_notfound">>),
     cb_context:setters(Context2,
     [
       {fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
