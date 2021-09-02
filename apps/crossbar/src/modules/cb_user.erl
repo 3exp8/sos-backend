@@ -3,6 +3,8 @@
 -include("crossbar.hrl").
 
 -define(PATH_CREATE, <<"create">>).
+-define(PATH_RESEND, <<"resend">>).
+
 -define(PATH_PROFILE, <<"profile">>).
 -define(PERMISSION_CREATE_USER, <<"create_staff">>).
 -define(PERMISSION_CREATE_USER_DESC, {?PERMISSION_CREATE_USER, <<"User create other users">>}).
@@ -73,7 +75,7 @@ resource_exists() -> 'true'.
 resource_exists(_Path) -> 'true'.
 
 %% /api/v1/account/path
-resource_exists(_AccountId, ?CONFIRM) -> 'true';
+resource_exists(_AccountId, ?PATH_CONFIRM) -> 'true';
 resource_exists(_AccountId, ?PASSWORD_CHANGE) -> 'true';
 resource_exists(_AccountId, ?LOGOUT) -> 'true';
 resource_exists(_AccountId, _Path) -> 'false'.
@@ -91,14 +93,14 @@ authenticate_with_method(Context, ?HTTP_GET) ->
 
 %% /api/v1/account/accountid
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
-authenticate(Context, ?CONFIRM) -> true;
+authenticate(_Context, ?PATH_CONFIRM) -> true;
 authenticate(Context, _Path) ->
   Token = cb_context:auth_token(Context),
   app_util:oauth2_authentic(Token, Context).
 
 %% /api/v1/account/accountid/path
 -spec authenticate(cb_context:context(), path_token(), path_token()) -> boolean().
-authenticate(_Context, _AccountId, ?CONFIRM) -> true;
+authenticate(_Context, _AccountId, ?PATH_CONFIRM) -> true;
 
 authenticate(Context, _AccountId, ?PASSWORD_CHANGE) ->
   Token = cb_context:auth_token(Context),
@@ -116,10 +118,10 @@ authenticate(_Context, _AccountId, _Path) -> false.
 authorize(Context) ->
   authorize_util:authorize(?MODULE, Context).
 
-authorize(Context, ?PATH_CREATE = Path) ->
+authorize(Context, ?PATH_CREATE = _Path) ->
     authorize_util:authorize(?MODULE, Context, {permission, ?PERMISSION_CREATE_USER}); 
 
-authorize(Context, ?PATH_PROFILE = Path) -> true;
+authorize(_Context, ?PATH_PROFILE = _Path) -> true;
 
 authorize(_Context, _Id) ->
     true. 
@@ -243,84 +245,65 @@ handle_get({Req, Context}, Id) ->
 handle_put(Context) ->
 
   ReqJson = cb_context:req_json(Context),
-  Debug =  wh_json:get_value(<<"debug">>, ReqJson),
-  Email  = wh_json:get_value(<<"email">>, ReqJson),
+  PhoneNumber  = zt_util:normalize_string(wh_json:get_value(<<"phone_number">>, ReqJson)),
+  IsDebug =  wh_json:get_value(<<"debug">>, ReqJson),
   FirstName = wh_json:get_value(<<"first_name">>, ReqJson, <<>>),
   LastName = wh_json:get_value(<<"last_name">>, ReqJson, <<>>),
   Uuid = zt_util:get_uuid(),
-  AccountId = <<"account", Uuid/binary>>,
   UserId = <<"user", Uuid/binary>>,
   LoginedUserId = cb_context:user_id(Context),
-  ConfirmCode = zt_util:create_random_number(),
+  ConfirmCode = user_handler:create_confirm_code_by_phone(PhoneNumber),
   UserInfo = get_user_info(ReqJson),
-  UserDb = maps:merge(UserInfo, #{
-                                  id => UserId,
-                                  account_id => AccountId,
-                                  first_name => FirstName, 
-                                  last_name => LastName,
-                                  created_by => LoginedUserId,	
-                                  updated_by => LoginedUserId,
-                                  confirm_code => ConfirmCode
-                                }),
+  UserDb = maps:merge(UserInfo, 
+                #{
+                    id => UserId,
+                    first_name => FirstName, 
+                    last_name => LastName,
+                    status => ?USER_STATUS_UNCONFIRMED, 
+                    created_by => LoginedUserId,	
+                    updated_by => LoginedUserId,
+                    confirm_code => ConfirmCode
+            }),
   user_db:save(UserDb),
-  if Debug == <<"true">> ->
-       RespData = [{<<"user_id">>, UserId}, {<<"account_id">>, AccountId}, {confirm_code, ConfirmCode}],
-       cb_context:setters(Context ,[{fun cb_context:set_resp_data/2, RespData},{fun cb_context:set_resp_status/2, 'success'}]);
-     true ->
-       spawn(fun() ->  app_util:send_email({create, Context, AccountId, Email, FirstName, LastName, ConfirmCode, anyhost, 80}) end),
-       RespData = [{<<"user_id">>, UserId},{<<"account_id">>, AccountId}],
-       cb_context:setters(Context
-                          ,[{fun cb_context:set_resp_data/2, RespData}
-                            ,{fun cb_context:set_resp_status/2, 'success'}])
-  end.
+  user_actor:start_actor(PhoneNumber),
+  InitRespData = #{
+        id =>  UserId,
+        phone_number => PhoneNumber
+  },
+  RespData = 
+      case IsDebug of
+            <<"true">> -> 
+                maps:merge(InitRespData, #{
+                    confirm_code => ConfirmCode
+                });
+            _ ->
+                    user_handler:send_otp(PhoneNumber,ConfirmCode),
+                    InitRespData
+        end,
+  cb_context:setters(Context
+                                ,[{fun cb_context:set_resp_data/2, RespData}
+                                  ,{fun cb_context:set_resp_status/2, 'success'}])  .
 
 %% PUT api/v1/account/accountid
 -spec handle_put(cb_context:context(), path_token()) -> cb_context:context().
-handle_put(Context, ?PATH_CREATE) ->
-  ReqJson = cb_context:req_json(Context),
-  Debug =  wh_json:get_value(<<"debug">>, ReqJson),
-  Email  = wh_json:get_value(<<"email">>, ReqJson),
-  FirstName = wh_json:get_value(<<"first_name">>, ReqJson, <<>>),
-  LastName = wh_json:get_value(<<"last_name">>, ReqJson, <<>>),
-  RolesPropsList = wh_json:get_value(<<"roles">>, ReqJson, []),
-  RolesMapList = lists:map(fun(RoleProps) -> 
-    maps:from_list(RoleProps)
-  end, RolesPropsList),
-
-  Uuid = zt_util:get_uuid(),
-  AccountId = cb_context:account_id(Context),
-  ConfirmCode = zt_util:create_random_number(),
-  UserInfo = get_user_info(ReqJson),
-  UserId = <<"user", Uuid/binary>>,
-  UserDb = maps:merge(UserInfo, #{
-                                  id => UserId,
-                                  account_id => AccountId,
-                                  first_name => FirstName, 
-                                  last_name => LastName,
-                                  status => ?ACTIVE,
-                                  roles => RolesMapList,
-                                  created_by => cb_context:user_id(Context),  
-                                  updated_by => cb_context:user_id(Context),
-                                  confirm_code => ConfirmCode
-                                }),
-  user_db:save(UserDb),
- % spawn(fun() ->  app_util:send_email({create, Context, AccountId, Email, FirstName, LastName, ConfirmCode, Host, Port}) end),
-  RespData = [{<<"id">>, UserId}, {<<"account_id">>, AccountId}],
-  cb_context:setters(Context
-                          ,[{fun cb_context:set_resp_data/2, RespData}
-                            ,{fun cb_context:set_resp_status/2, 'success'}]);
-
 handle_put(Context, _AccountId) ->
   ?MODULE:handle_put(Context).
 
 %% POST api/v1/account/accountid
 -spec handle_post(cb_context:context(), path_token()) -> cb_context:context().
 
-handle_post(Context, ?CONFIRM) ->
+handle_post(Context, ?PATH_CONFIRM) ->
   ReqJson =  cb_context:req_json(Context),
-  Email  = wh_json:get_value(<<"email">>, ReqJson),
-  User = user_db:find_by_email(Email), 
-  handle_user_confirm(Context, User);
+  PhoneNumber  = wh_json:get_value(<<"phone_number">>, ReqJson),
+  Result = user_db:find_by_phone_number(PhoneNumber),
+  user_handler:handle_user_confirm(Context, Result);
+
+handle_post(Context, ?PATH_RESEND) ->
+  ReqJson =  cb_context:req_json(Context),
+  PhoneNumber  = wh_json:get_value(<<"phone_number">>, ReqJson),
+  Result = user_db:find_by_phone_number(PhoneNumber),
+  user_handler:handle_user_resend(Context, Result);
+  
 
 handle_post(Context, ?PATH_PROFILE) ->
   ReqJson =  cb_context:req_json(Context),
@@ -450,10 +433,9 @@ maybe_update_role_token(false, _UserId, _NewRoles) -> ok.
 
 %% POST api/v1/users/{id}/confirm
 %TODO 
--spec handle_post(cb_context:context(), path_token(), path_token()) -> cb_context:context().
-handle_post(Context, UserId, ?CONFIRM) ->
+handle_post(Context, UserId, ?PATH_CONFIRM) ->
   UserInfo = user_db:find(UserId),
-  handle_user_confirm(Context, UserInfo);
+  user_handler:handle_user_confirm(Context, UserInfo);
 
 
 %% POST api/v1/account/accountid/change_password
@@ -558,59 +540,6 @@ permissions() ->
   DefaultPermissions.
   %DefaultPermissions ++ [?PERMISSION_CREATE_USER_DESC].
   
-  handle_user_confirm(Context, UserInfo) when is_map(UserInfo) -> 
-#{
-  id := UserId,
-  confirm_code := ServerConfirmCode, 
-  confirm_code_created_time_dt := ConfirmCodeCreatedTime,
-  status := CurrStatus
-} = UserInfo,
-ReqJson =  cb_context:req_json(Context),
-CurrentTimeToSecond = zt_util:timestamp_second(),
-ConfirmCode = wh_json:get_value(<<"confirm_code">>, ReqJson), 
-ConfirmCodeCreatedTimeToSecond = zt_util:datetime_binary_to_second(ConfirmCodeCreatedTime),
-if 
-  CurrentTimeToSecond - ConfirmCodeCreatedTimeToSecond > ?DATESECOND ->
-    cb_context:setters(Context,[
-              {fun cb_context:set_resp_error_msg/2, <<"Code Exprired">>},
-              {fun cb_context:set_resp_status/2, <<"error">>},
-              {fun cb_context:set_resp_error_code/2, 400}
-        ]); 
-  CurrStatus == ?ACTIVE ->
-    cb_context:setters(Context,
-                       [{fun cb_context:set_resp_error_msg/2, <<"Account Activated">>},
-                        {fun cb_context:set_resp_status/2, <<"error">>},
-                        {fun cb_context:set_resp_error_code/2, 400}
-                       ]); 
-  ConfirmCode /= <<>> andalso ConfirmCode=:=ServerConfirmCode -> 
-    UpdatedUserDB = maps:merge(UserInfo, #{status => ?ACTIVE}),
-    user_db:save(UpdatedUserDB),
-
-    Scope    =  wh_json:get_value(<<"scope">>, ReqJson, ?USER_ROLE_USER),
-    Auth     = oauth2:authorize_password({UserId, {confirm_code,ConfirmCode}}, <<>>, Scope, [{scope, Scope}]),
-    NewContext = cb_customers:issue_token(Auth, Context),
-
-    cb_context:setters(NewContext, [{fun cb_context:set_resp_status/2, 'success'}]);
-  true -> 
-    cb_context:setters(Context,
-                       [{fun cb_context:set_resp_error_msg/2, <<"Invalid Code">>},
-                        {fun cb_context:set_resp_status/2, <<"error">>},
-                        {fun cb_context:set_resp_error_code/2, 400}
-                       ])
-
-end;
-
-handle_user_confirm(Context, [UserInfo]) -> 
-  handle_user_confirm(Context, UserInfo);
-
-
-handle_user_confirm(Context, _) -> 
-    cb_context:setters(Context,
-              [
-                {fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
-              {fun cb_context:set_resp_status/2, <<"error">>},
-              {fun cb_context:set_resp_error_code/2, 404}
-              ]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Internal Function
@@ -622,8 +551,9 @@ validate_request(Context, ?HTTP_PUT) ->
   ReqJson = cb_context:req_json(Context),
   Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),	
-  ValidateFuns = [fun validate_email/2
-   %               ,fun validate_phone_number/2
+  ValidateFuns = [
+    %fun validate_email/2
+                 fun validate_phone_number/2
                   ,fun validate_password/2
                  ],
   lists:foldl(fun(F, C) ->
@@ -658,7 +588,7 @@ validate_request(?PATH_CREATE, Context, ?HTTP_PUT) ->
                   F(ReqJson, C)
               end, Context1,  ValidateFuns);
 
-validate_request(?CONFIRM, Context, ?HTTP_POST) ->
+validate_request(?PATH_CONFIRM, Context, ?HTTP_POST) ->
     ReqJson = cb_context:req_json(Context),
     Context1 = cb_context:setters(Context
                     ,[{fun cb_context:set_resp_status/2, 'success'}]),	
@@ -691,7 +621,7 @@ validate_request(_AccountId, Context, _Verb) ->
 
 %% POST api/v1/account/accountid/confirm
 -spec  validate_request(path_token(), cb_context:context(), path_token(), http_method()) -> cb_context:context().
-validate_request(_AccountId, Context, ?CONFIRM, _Verb) ->
+validate_request(_AccountId, Context, ?PATH_CONFIRM, _Verb) ->
   ReqJson = cb_context:req_json(Context),
   Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),	
@@ -790,7 +720,11 @@ validate_phone_number(ReqJson, Context) ->
         nomatch ->
           api_util:validate_error(Context, <<"phone_number">>, <<"invalid">>, <<"Invalid PhoneNumber">>);
         _ -> 
-          Context
+          case user_handler:check_register_user_existed(PhoneNumber) of
+            false -> Context;
+            _ -> 
+              api_util:validate_error(Context, <<"phone_number">>, <<"invalid">>, <<"phone_number_in_use">>)
+          end
       end
   end. 
 
@@ -897,7 +831,7 @@ get_user_info(ReqJson) ->
       time_zone => TimeZone, 
       created_time_dt => CreatedTime,
       updated_time_dt => CreatedTime, 
-      status => ?INACTIVE, 
+      status => ?USER_STATUS_INACTIVE, 
       confirm_code_created_time_dt => CreatedTime
     }.
 
@@ -929,7 +863,7 @@ is_user_exist(Email) ->
   end. 
 
 get_sub_fields_accounts(User) -> 
-  Fields = [password, created_by, created_time_dt, updated_by, updated_time_dt,
+  Fields = [account_id, password, created_by, created_time_dt, updated_by, updated_time_dt,
             confirm_code, confirm_code_created_time_dt] ,
   NewMap = maps:without(Fields, User),
   Res = maps:to_list(NewMap),
