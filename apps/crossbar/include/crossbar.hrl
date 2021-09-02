@@ -54,6 +54,9 @@
 -define(CANCELED, <<"cancel">>).
 -define(ACTIVE, <<"active">>).
 -define(INACTIVE, <<"inactive">>).
+-define(USER_STATUS_ACTIVE, <<"active">>).
+-define(USER_STATUS_INACTIVE, <<"inactive">>).
+-define(USER_STATUS_UNCONFIRMED, <<"unconfirmed">>).
   
 -define(HIDE, <<"hide">>).
 -define(SHOW, <<"show">>).
@@ -64,7 +67,7 @@
 -define(ENV, [<<"dev">>, <<"prod">>]).
 -define(DELIVERED, <<"success">>).
 -define(FAIL, <<"failure">>).
--define(CONFIRM, <<"confirm">>).
+-define(PATH_CONFIRM, <<"confirm">>).
 -define(PASSWORD_CHANGE, <<"password_change">>).
 -define(LOGOUT, <<"logout">>).
 

@@ -76,7 +76,7 @@ resource_exists() -> 'true'.
 resource_exists(_Path) -> 'true'.
 
 %% /api/v1/account/path
-resource_exists(_AccountId, ?CONFIRM) -> 'true';
+resource_exists(_AccountId, ?PATH_CONFIRM) -> 'true';
 resource_exists(_AccountId, ?PASSWORD_CHANGE) -> 'true';
 resource_exists(_AccountId, ?LOGOUT) -> 'true';
 resource_exists(_AccountId, _Path) -> 'false'.
@@ -101,7 +101,7 @@ authenticate(Context, _Path) ->
 
 %% /api/v1/account/accountid/path
 -spec authenticate(cb_context:context(), path_token(), path_token()) -> boolean().
-authenticate(_Context, _AccountId, ?CONFIRM) ->
+authenticate(_Context, _AccountId, ?PATH_CONFIRM) ->
   true ;
 
 authenticate(Context, _AccountId, ?PASSWORD_CHANGE) ->
@@ -428,7 +428,7 @@ validate_request(_AccountId, Context, _Verb) ->
 
 %% POST api/v1/account/accountid/confirm
 -spec  validate_request(path_token(), cb_context:context(), path_token(), http_method()) -> cb_context:context().
-validate_request(_AccountId, Context, ?CONFIRM, _Verb) ->
+validate_request(_AccountId, Context, ?PATH_CONFIRM, _Verb) ->
   ReqJson = cb_context:req_json(Context),
   Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),	

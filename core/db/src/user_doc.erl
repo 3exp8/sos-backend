@@ -11,28 +11,7 @@
             init_data/0
         ]).
 
--opaque user() ::
-  #{
-    id => binary(),
-    account_id => binary(),
-    email   => binary(),
-    phone_number => binary(),
-    first_name => binary(),
-    last_name => binary(),
-    address => binary(),
-    password => binary(),
-    role => binary(),
-    roles => [map()],
-    avatar => binary(),
-    time_zone => binary(),
-    created_by => binary(),
-    created_time_dt =>  binary(),
-    updated_by => binary(),
-    updated_time_dt => binary(),
-    status => binary(),
-    confirm_code => binary(),
-    confirm_code_created_time_dt => binary()
-  }.
+-opaque user() :: map().
 
 -type id() :: binary().
 -type email() :: binary().
