@@ -257,7 +257,7 @@ validate_new_password(ReqJson, Context) ->
     0 ->
       api_util:validate_error(Context, <<"new_password">>, <<"required">>, <<"Field 'new_password' is required">>);
     Val when Val < 8 ->
-      api_util:validate_error(Context, <<"password">>, <<"invalid">>, <<"New Password must have at least 8 characters">>);
+      api_util:validate_error(Context, <<"new_password">>, <<"invalid">>, <<"password_min_8_charactor">>);
     _  ->
       Context
   end.

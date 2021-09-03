@@ -32,7 +32,9 @@
 	[
 		{<<"groups">>,cb_group},
 		{<<"users">>,cb_user},
-		{<<"auth">>,cb_auth}
+		{<<"auth">>,cb_auth},
+		{<<"forgot">>,cb_forgot},
+		{<<"reset">>,cb_reset}
 	]
 ).
 

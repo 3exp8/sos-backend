@@ -210,7 +210,8 @@ handle_get({Req, Context}, ?PATH_PROFILE) ->
                                      ,{fun cb_context:set_resp_status/2, 'success'}
                                     ])};
     _ ->
-      {Req, cb_context:setters(Context, [{fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
+      Context2 = api_util:validate_error(Context, <<"user">>, <<"not_found">>, <<"user_notfound">>), 
+      {Req, cb_context:setters(Context2, [{fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
                                 {fun cb_context:set_resp_status/2, <<"error">>},
                                 {fun cb_context:set_resp_error_code/2, 404}])}
   end;
@@ -231,14 +232,16 @@ handle_get({Req, Context}, Id) ->
                                      ,{fun cb_context:set_resp_status/2, 'success'}
                                     ])};
         true ->
-          {Req, cb_context:setters(Context,
+          Context2 = api_util:validate_error(Context, <<"permission">>, <<"invalid">>, <<"forbidden">>), 
+          {Req, cb_context:setters(Context2,
                                    [{fun cb_context:set_resp_error_msg/2, <<"Forbidden">>},
                                     {fun cb_context:set_resp_status/2, <<"error">>},
                                     {fun cb_context:set_resp_error_code/2, 403}
                                    ])}
       end;
     _ ->
-      {Req, cb_context:setters(Context, [{fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
+      Context2 = api_util:validate_error(Context, <<"user">>, <<"not_found">>, <<"user_notfound">>), 
+      {Req, cb_context:setters(Context2, [{fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
                                 {fun cb_context:set_resp_status/2, <<"error">>},
                                 {fun cb_context:set_resp_error_code/2, 404}])}
   end. 
@@ -348,6 +351,7 @@ handle_post(Context, ?PATH_PROFILE) ->
           cb_context:setters(Context, [{fun cb_context:set_resp_data/2, RespData}
                                        ,{fun cb_context:set_resp_status/2, 'success'}]);
     _ ->
+      Context2 = api_util:validate_error(Context, <<"user">>, <<"not_found">>, <<"user_notfound">>), 
       cb_context:setters(Context,
                          [{fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
                           {fun cb_context:set_resp_status/2, <<"error">>},
@@ -394,7 +398,8 @@ handle_post(Context, Id) ->
           cb_context:setters(Context, [{fun cb_context:set_resp_data/2, RespData}
                                        ,{fun cb_context:set_resp_status/2, 'success'}]);
     _ ->
-      cb_context:setters(Context,
+      Context2 = api_util:validate_error(Context, <<"user">>, <<"not_found">>, <<"user_notfound">>), 
+      cb_context:setters(Context2,
                          [{fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
                           {fun cb_context:set_resp_status/2, <<"error">>},
                           {fun cb_context:set_resp_error_code/2, 404}])
@@ -452,7 +457,8 @@ handle_post(Context, Id, ?PATH_PASSWORD_CHANGE) ->
                                        ,{fun cb_context:set_resp_status/2, 'success'}
                                       ]);
                 true ->
-                  cb_context:setters(Context,
+                  Context2 = api_util:validate_error(Context, <<"current_password">>, <<"invalid">>, <<"current_password_invalid">>), 
+                  cb_context:setters(Context2,
                                      [{fun cb_context:set_resp_error_msg/2, <<"Invalid Current Password">>},
                                       {fun cb_context:set_resp_status/2, <<"error">>},
                                       {fun cb_context:set_resp_error_code/2, 400}
@@ -460,14 +466,16 @@ handle_post(Context, Id, ?PATH_PASSWORD_CHANGE) ->
 
             end;
           true ->
-            cb_context:setters(Context,
+            Context2 = api_util:validate_error(Context, <<"permission">>, <<"invalid">>, <<"forbidden">>), 
+            cb_context:setters(Context2,
                                [{fun cb_context:set_resp_error_msg/2, <<"Forbidden">>},
                                 {fun cb_context:set_resp_status/2, <<"error">>},
                                 {fun cb_context:set_resp_error_code/2, 403}
                                ])
       end;
-    _ -> 
-      cb_context:setters(Context,
+    _ ->
+      Context2 = api_util:validate_error(Context, <<"user">>, <<"not_found">>, <<"user_notfound">>), 
+      cb_context:setters(Context2,
                          [{fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
                           {fun cb_context:set_resp_status/2, <<"error">>},
                           {fun cb_context:set_resp_error_code/2, 404}
@@ -691,6 +699,16 @@ errors() ->
   ],
   HandlePut = app_util:declare_api_validate(<<"put">>,Path,HandlePutValidates),
 
+  Path1GetId = <<"users/{id}">>,
+  HandleGet1Validates =
+  [
+    {<<"user">>, <<"not_found">>, <<"user_notfound">>},
+    {<<"permission">>, <<"invalid">>, <<"forbidden">>}  
+
+  ],
+  HandleGet1Id = app_util:declare_api_validate(<<"get">>,Path1GetId,HandleGet1Validates),
+
+
   PathConfirm = ?PATH_CONFIRM,
   Path1Confirm = <<Path/binary,"/",PathConfirm/binary>>,
   HandlePost1ConfirmValidates =
@@ -713,16 +731,38 @@ errors() ->
     {<<"resend_otp">>, <<"invalid">>, <<"phon_number_notfound">>},
     {<<"resend_otp">>, <<"invalid">>, <<"resend_too_fast">>},
     {<<"resend_otp">>, <<"invalid">>, <<"max_resend_reached">>}
-
-    
   ],
   HandlePost1Resend = app_util:declare_api_validate(<<"post">>,Path1Resend, HandlePost1ResendValidates),
 
 
+  PathPasswordChange = ?PATH_PASSWORD_CHANGE,
+  Path1PasswordChange = <<Path/binary,"/",PathPasswordChange/binary>>,
+  HandlePost1PasswordChangeValidates =
+  [
+    {<<"current_password">>, <<"required">>, <<"Field 'current_password' is required">>},
+    {<<"new_password">>, <<"required">>, <<"Field 'new_password' is required">>},
+    {<<"new_password">>, <<"invalid">>, <<"password_min_8_charactor">>},
+    {<<"user">>, <<"not_found">>, <<"user_notfound">>},
+    {<<"permission">>, <<"invalid">>, <<"forbidden">>} 
+
+  ],
+  HandlePost1PasswordChange = app_util:declare_api_validate(<<"post">>,Path1PasswordChange, HandlePost1PasswordChangeValidates),
+
+  PathUpdateProfile = ?PATH_PROFILE,
+  Path1UpdateProfile = <<Path/binary,"/",PathUpdateProfile/binary>>,
+  HandlePost1UpdateProfileValidates =
+  [
+    {<<"user">>, <<"not_found">>, <<"user_notfound">>} 
+
+  ],
+  HandlePost1UpdateProfile = app_util:declare_api_validate(<<"post">>,Path1UpdateProfile, HandlePost1UpdateProfileValidates),
+
   Apis = [
     HandlePut,
+    HandleGet1Id,
     HandlePost1Confirm,
-    HandlePost1Resend
-    
+    HandlePost1Resend,
+    HandlePost1PasswordChange,
+    HandlePost1UpdateProfile
   ],
   app_util:create_module_validates(Apis).

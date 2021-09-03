@@ -9,6 +9,7 @@
 	,handle_post/1
 	,authenticate/1
 	,authorize/1
+	,errors/0
 	]).
 
 init() ->
@@ -63,7 +64,8 @@ handle_post(Context) ->
 		EplasedSeconds = zt_datetime:diff_second(ConfirmCodeCreatedTimeServer),
 		if 
 			EplasedSeconds > OtpExpiredDuration ->
-				cb_context:setters(Context,
+				Context2 = api_util:validate_error(Context, <<"confirm_code">>, <<"invalid">>, <<"confirm_code_expired">>),
+				cb_context:setters(Context2,
 									[{fun cb_context:set_resp_error_msg/2, <<"Code Exprired">>},
 									{fun cb_context:set_resp_status/2, <<"error">>},
 									{fun cb_context:set_resp_error_code/2, 400}
@@ -88,14 +90,16 @@ handle_post(Context) ->
 			cb_context:setters(NewContext
                        ,[{fun cb_context:set_resp_status/2, 'success'}]);
 		true ->
-			cb_context:setters(Context,
+			Context2 = api_util:validate_error(Context, <<"confirm_code">>, <<"invalid">>, <<"confirm_code_not_match">>), 
+			cb_context:setters(Context2,
         			[{fun cb_context:set_resp_error_msg/2, <<"Invalid Code">>},
         			 {fun cb_context:set_resp_status/2, <<"error">>},
                      {fun cb_context:set_resp_error_code/2, 400}
                     ])
-		end ;
+		end;
 	_ ->
-		cb_context:setters(Context,
+		Context2 = api_util:validate_error(Context, <<"phone_number">>, <<"invalid">>, <<"phon_number_notfound">>),
+		cb_context:setters(Context2,
         			[{fun cb_context:set_resp_error_msg/2, <<"Phone number Not Found">>},
         			 {fun cb_context:set_resp_status/2, <<"error">>},
                      {fun cb_context:set_resp_error_code/2, 404}
@@ -120,3 +124,22 @@ validate_request(Context, _Verb) ->
 	lists:foldl(fun(F, C) ->
 			F(ReqJson, C)
 	end, Context1,  ValidateFuns).
+
+errors() -> 
+  Path = <<"reset">>,
+  HandlePostValidates =
+  [
+    {<<"phone_number">>, <<"required">>, <<"phone_number_required">>},
+	{<<"phone_number">>, <<"invalid">>, <<"phon_number_notfound">>},
+	{<<"confirm_code">>, <<"required">>, <<"confirm_code_required">>},
+	{<<"confirm_code">>, <<"invalid">>, <<"confirm_code_expired">>},
+    {<<"confirm_code">>, <<"invalid">>, <<"confirm_code_not_match">>},
+	{<<"password">>, <<"required">>, <<"password_required">>},
+    {<<"password">>, <<"invalid">>, <<"password_min_8_charactor">>} 
+   
+  ],
+  HandlePost = app_util:declare_api_validate(<<"post">>,Path,HandlePostValidates),
+  Apis = [
+    HandlePost
+  ],
+  app_util:create_module_validates(Apis).

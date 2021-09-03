@@ -12,7 +12,8 @@
 	]).
 
 -export([
-          permissions/0
+	errors/0,
+    permissions/0
   ]).
 
 
@@ -100,14 +101,16 @@ handle_post(Context) ->
 
 				end;
 			_ ->
-				cb_context:setters(Context,
+				Context2 = api_util:validate_error(Context, <<"user">>, <<"inactive">>, <<"user_inactive">>),
+				cb_context:setters(Context2,
 	    			[{fun cb_context:set_resp_error_msg/2, <<"InActive User">>},
 	    			 {fun cb_context:set_resp_status/2, <<"error">>},
 	                 {fun cb_context:set_resp_error_code/2, 400}
 	                ])
 		end;
 	_ -> 
-		cb_context:setters(Context,
+		Context2 = api_util:validate_error(Context, <<"phone_number">>, <<"invalid">>, <<"phon_number_notfound">>),
+		cb_context:setters(Context2,
     			[{fun cb_context:set_resp_error_msg/2, <<"Phone Number Not Found">>},
     			 {fun cb_context:set_resp_status/2, <<"error">>},
                  {fun cb_context:set_resp_error_code/2, 404}
@@ -133,3 +136,21 @@ validate_request(Context, ?HTTP_POST) ->
 	end, Context1,  ValidateFuns);
 
 validate_request(Context, _) -> Context.
+
+errors() -> 
+  Path = <<"forgot">>,
+  HandlePostValidates =
+  [
+    {<<"phone_number">>, <<"required">>, <<"phone_number_required">>},
+	{<<"user">>, <<"inactive">>, <<"user_inactive">>},
+	{<<"phone_number">>, <<"invalid">>, <<"phon_number_notfound">>},
+	{<<"resend_otp">>, <<"invalid">>, <<"phon_number_notfound">>},
+    {<<"resend_otp">>, <<"invalid">>, <<"resend_too_fast">>},
+    {<<"resend_otp">>, <<"invalid">>, <<"max_resend_reached">>}
+   
+  ],
+  HandlePost = app_util:declare_api_validate(<<"post">>,Path,HandlePostValidates),
+  Apis = [
+    HandlePost
+  ],
+  app_util:create_module_validates(Apis).
