@@ -122,7 +122,8 @@
       'cb_sos_request',
       'cb_support_type',
       'cb_support_trans',
-      'cb_apis'
+      'cb_apis',
+      'cb_s3'
     ]).
 
 

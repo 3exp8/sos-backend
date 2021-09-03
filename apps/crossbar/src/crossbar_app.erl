@@ -166,6 +166,7 @@ start_deps() ->
                                                 ,'cowboy'
                                                 ,'worker_pool'
                                                 ,'ibrowse'
+												,'erlcloud'
                                                ]],
     'ok'.
 
