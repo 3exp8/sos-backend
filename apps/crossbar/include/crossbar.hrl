@@ -68,8 +68,8 @@
 -define(DELIVERED, <<"success">>).
 -define(FAIL, <<"failure">>).
 -define(PATH_CONFIRM, <<"confirm">>).
--define(PASSWORD_CHANGE, <<"password_change">>).
--define(LOGOUT, <<"logout">>).
+-define(PATH_PASSWORD_CHANGE, <<"password_change">>).
+-define(PATH_LOGOUT, <<"logout">>).
 
 -define(DEAL_ORDER_CODE_SIZE, 3).
 -define(UUID_SIZE, 16).
