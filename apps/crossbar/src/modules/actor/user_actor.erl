@@ -39,12 +39,14 @@ handle_call(check_otp_rule, _From, #{
     send_otp_count := Count,
     send_otp_time := LastTime
 } = State) ->
+    OtpMinInterval = zt_util:to_integer(application:get_env(crossbar, send_otp_min_interval, 60)),
+    OtpMaxResend = zt_util:to_integer(application:get_env(crossbar, send_otp_max_resend, 5)),
     Result =
     if 
-        Count < 5 ->
+        Count < OtpMaxResend ->
             Second = zt_datetime:diff_second(LastTime),
             if
-                Second < 60 -> resend_too_fast;
+                Second < OtpMinInterval -> resend_too_fast;
                 true -> true
             end;
         true -> max_resend_reached

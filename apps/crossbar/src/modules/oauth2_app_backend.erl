@@ -174,7 +174,7 @@ associate_refresh_token(RefreshToken, Context, Ctx) ->
 
 associate_access_token(AccessToken, Context, Ctx) ->
 	lager:info("Access Token: Ctx ~p ~n", [Ctx]),
-	Role = proplists:get_value(<<"role">>, Ctx, ?USER_ROLE_CUSTOMER),
+	Role = proplists:get_value(<<"role">>, Ctx, ?USER_ROLE_USER),
 	RefreshToken = proplists:get_value(<<"refresh_token">>, Ctx, <<>>),
 	lager:info("TEST refresh token ~p ~n", [RefreshToken]),
 	{UserId, AccountId} = 

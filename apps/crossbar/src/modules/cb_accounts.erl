@@ -77,8 +77,8 @@ resource_exists(_Path) -> 'true'.
 
 %% /api/v1/account/path
 resource_exists(_AccountId, ?PATH_CONFIRM) -> 'true';
-resource_exists(_AccountId, ?PASSWORD_CHANGE) -> 'true';
-resource_exists(_AccountId, ?LOGOUT) -> 'true';
+resource_exists(_AccountId, ?PATH_PASSWORD_CHANGE) -> 'true';
+resource_exists(_AccountId, ?PATH_LOGOUT) -> 'true';
 resource_exists(_AccountId, _Path) -> 'false'.
 
 %% /api/v1/account
@@ -104,11 +104,11 @@ authenticate(Context, _Path) ->
 authenticate(_Context, _AccountId, ?PATH_CONFIRM) ->
   true ;
 
-authenticate(Context, _AccountId, ?PASSWORD_CHANGE) ->
+authenticate(Context, _AccountId, ?PATH_PASSWORD_CHANGE) ->
   Token = cb_context:auth_token(Context),
   app_util:oauth2_authentic(Token, Context);
 
-authenticate(Context, _AccountId, ?LOGOUT) ->
+authenticate(Context, _AccountId, ?PATH_LOGOUT) ->
   Token = cb_context:auth_token(Context),
   app_util:oauth2_authentic(Token, Context);
 
@@ -439,7 +439,7 @@ validate_request(_AccountId, Context, ?PATH_CONFIRM, _Verb) ->
               end, Context1,  ValidateFuns);
 
 %%%%POST api/v1/account/accountid/password_change
-validate_request(_AccountId, Context, ?PASSWORD_CHANGE, _Verb) ->
+validate_request(_AccountId, Context, ?PATH_PASSWORD_CHANGE, _Verb) ->
   ReqJson = cb_context:req_json(Context),
   Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),	
@@ -452,7 +452,7 @@ validate_request(_AccountId, Context, ?PASSWORD_CHANGE, _Verb) ->
               end, Context1,  ValidateFuns);
 
 %% POST api/v1/account/accountid/logout
-validate_request(_AccountId, Context, ?LOGOUT, _Verb) ->
+validate_request(_AccountId, Context, ?PATH_LOGOUT, _Verb) ->
   Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),	
   ReqJson =  cb_context:req_json(Context1),
