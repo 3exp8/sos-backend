@@ -221,7 +221,7 @@ handle_post(Context, Id) ->
         #{
             name := NameDb,
             unit := UnitDb,
-            color_type := ColorTypeDb,
+            color_info := ColorTypeDb,
             target_types := TargetTypesDb
         } = InfoDb -> 
          ReqJson =  cb_context:req_json(Context),

@@ -16,8 +16,19 @@
 calculate_color_type([]) -> #{};
 
 calculate_color_type(SupportTypes) -> 
-
-#{}.
+lager:debug("calculate_color_type SupportTypes: ~p~n",[SupportTypes]),
+Types = 
+    lists:map(fun(#{type := Type}) -> 
+        Type
+    end,SupportTypes),
+SupportTypeDb = support_type_db:find_by_conditions([{type,'in',Types}],[],100,0),
+Colors = 
+    lists:map(fun(#{color_info := #{ <<"color">> := ColorDb}}) -> 
+        ColorDb
+    end,SupportTypeDb),
+ColorInfo = configuration_handler:get_high_priority_color(Colors),
+lager:debug("calculate_color_type ColorInfo: ~p~n",[ColorInfo]),
+ColorInfo.
 
 -spec validate_requester_type(api_binary(), cb_context:context()) -> cb_context:context().
 validate_requester_type(ReqJson, Context) ->
@@ -38,18 +49,17 @@ validate_requester_type_update(ReqJson, Context) ->
 
 -spec validate_share_phone_number(api_binary(), cb_context:context()) -> cb_context:context().
 validate_share_phone_number(ReqJson, Context) ->
-  Key = <<"share_phone_numbber">>,
-  Val = wh_json:get_value(Key, ReqJson, <<>>),
-  case api_util:check_val(Context, Key, Val) of 
-    Context -> 
-        validate_share_phone_number_value(Key, Val, Context);
-    ErrorContext -> 
-        ErrorContext
+  Key = <<"share_phone_number">>,
+  case wh_json:get_value(Key, ReqJson, <<>>) of 
+    <<>> -> 
+        Context;
+    Val -> 
+        validate_share_phone_number_value(Key, Val, Context)
   end.
 
 -spec validate_share_phone_number_update(api_binary(), cb_context:context()) -> cb_context:context().
 validate_share_phone_number_update(ReqJson, Context) ->
-  Key = <<"share_phone_numbber">>,
+  Key = <<"share_phone_number">>,
   Val = wh_json:get_value(Key, ReqJson, <<>>),
   validate_share_phone_number_value(Key, Val, Context).
 

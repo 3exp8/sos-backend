@@ -74,8 +74,7 @@ resource_exists(_Id, ?PATH_SUPPORT) ->
 
 -spec authenticate(cb_context:context()) -> boolean().
 authenticate(Context) ->
-    Token = cb_context:auth_token(Context),
-    app_util:maybe_oauth2_authentic(Token, Context).
+    true.
 
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
 authenticate(_Context, ?PATH_SEARCH) -> true;
@@ -263,7 +262,12 @@ handle_post(Context, Id) ->
 
             %Doc = get_doc(ReqJson, RequesterId, Db),
             Description = wh_json:get_value(<<"description">>, ReqJson, DescriptionDb),
-            SupportTypes = wh_json:get_value(<<"support_types">>, ReqJson, SupportTypesDb),
+            NewSupportTypes = 
+                case wh_json:get_value(<<"support_types">>, ReqJson, <<>>) of 
+                        <<>> -> SupportTypesDb;
+                        SupportTypeReq -> 
+                            zt_util:to_map_list(SupportTypeReq)
+                end,
             Location = wh_json:get_value(<<"location">>, ReqJson, LocationDb),
             AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson, AddressInfoDb)),
             
@@ -287,15 +291,15 @@ handle_post(Context, Id) ->
                 end,
 
             NewColorInfo = 
-                case SupportTypes of
+                case NewSupportTypes of
                     SupportTypesDb ->  ColorInfoDb;
-                    _ ->   sos_request_handler:calculate_color_type(SupportTypes)
+                    _ ->   sos_request_handler:calculate_color_type(NewSupportTypes)
                 end,
 
             UpdatedTime = zt_datetime:get_now(),
             NewInfo =  maps:merge(RequestInfo,#{
                             description => Description,
-                            support_types => SupportTypes,
+                            support_types => NewSupportTypes,
                             color_info => NewColorInfo,
                             location => Location,
                             address_info => AddressInfo,
@@ -556,7 +560,7 @@ get_info(ReqJson, Context) ->
     Subject = wh_json:get_value(<<"subject">>, ReqJson, <<>>),
     PriorityType = wh_json:get_value(<<"priority_type">>, ReqJson, <<>>),
     Description = wh_json:get_value(<<"description">>, ReqJson, <<>>),
-    SupportTypes = wh_json:get_value(<<"support_types">>, ReqJson, []),
+    SupportTypes = zt_util:to_map_list(wh_json:get_value(<<"support_types">>, ReqJson, [])),
     Location = wh_json:get_value(<<"location">>, ReqJson, <<"0.0,0.0">>),
     AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
     ContactInfo = zt_util:to_map(wh_json:get_value(<<"contact_info">>, ReqJson, [])),
