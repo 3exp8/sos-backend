@@ -37,6 +37,8 @@
 -define(PATH_SEARCH, <<"search">>).
 -define(PATH_SUPPORT, <<"support">>).
 -define(PATH_SUGGEST, <<"suggest">>).
+-define(PATH_BOOKMARK, <<"bookmark">>).
+
 
 init() ->
     _ = crossbar_bindings:bind(<<"*.allowed_methods.sos_requests">>, ?MODULE, allowed_methods),
@@ -60,6 +62,8 @@ allowed_methods(_Id, ?PATH_SUPPORT) ->
     [?HTTP_POST,?HTTP_PUT];
 
 allowed_methods(_Id, ?PATH_SUGGEST) ->
+    [?HTTP_POST];
+allowed_methods(_Id, ?PATH_BOOKMARK) ->
     [?HTTP_POST].
 
 -spec resource_exists() -> true.
@@ -72,6 +76,8 @@ resource_exists(_Id) ->
 
 -spec resource_exists(path_token(),path_token()) -> true.
 resource_exists(_Id, ?PATH_SUPPORT) -> true;
+
+resource_exists(_Id, ?PATH_BOOKMARK) -> true;
 
 resource_exists(_Id, ?PATH_SUGGEST) -> true.
 
@@ -86,6 +92,10 @@ authenticate(Context, Path) ->
     authenticate_verb(Context, Path, cb_context:req_verb(Context)).
 
 authenticate(Context, _Id, ?PATH_SUGGEST) ->
+    Token = cb_context:auth_token(Context),
+    app_util:oauth2_authentic(Token, Context);
+
+authenticate(Context, _Id, ?PATH_BOOKMARK) ->
     Token = cb_context:auth_token(Context),
     app_util:oauth2_authentic(Token, Context);
 
@@ -135,7 +145,10 @@ authorize_verb(_Context, _Id, ?PATH_SUPPORT, _) -> true;
 
 authorize_verb(Context, _Id, ?PATH_SUGGEST, ?HTTP_POST) -> 
     Role = cb_context:role(Context),
-    lager:debug("Role: ~p~n",[Role]),
+    Role == ?USER_ROLE_USER;
+
+authorize_verb(Context, _Id, ?PATH_BOOKMARK, ?HTTP_POST) -> 
+    Role = cb_context:role(Context),
     Role == ?USER_ROLE_USER;
 
 authorize_verb(_Context, _Id, _Path, _) -> false.
@@ -150,7 +163,6 @@ validate(Context, Id) ->
 
 -spec validate(cb_context:context(), path_token(), path_token()) -> cb_context:context().
 validate(Context, Id, Path) ->
-    lager:debug("validate Id: ~p, Path: ~p~n",[Id,Path]),
     validate_request(Id, Path, Context, cb_context:req_verb(Context)).
 
 %%%%%%%%%%%%%%%%
@@ -427,6 +439,54 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                 ])
         end;
 
+    handle_post(Context, Id, ?PATH_BOOKMARK) ->
+        ReqJson = cb_context:req_json(Context),
+        TargetType = wh_json:get_value(<<"bookmarker_type">>, ReqJson),
+        TargetId = wh_json:get_value(<<"bookmarker_id">>, ReqJson),
+        case sos_request_db:find(Id) of
+            #{} = Info ->
+                case sos_request_handler:get_target_type(TargetType, TargetId) of 
+                    {error, Error} ->
+                        cb_context:setters(Context,[
+                            {fun cb_context:set_resp_error_msg/2, Error},
+                            {fun cb_context:set_resp_status/2, <<"error">>},
+                            {fun cb_context:set_resp_error_code/2, 400}
+                        ]);
+
+                    {_, _, BookmarkerName} ->
+                        BookmarksDb = maps:get(bookmarks,Info,[]),
+                        NewBookmarks = 
+                            case wh_json:get_value(<<"action">>, ReqJson,<<"bookmark">>) of 
+                                <<"bookmark">> -> 
+                                    BookmarkInfo = 
+                                    #{
+                                        bookmarker_type => TargetType,
+                                        bookmarker_id => TargetId,
+                                        bookmarker_name => BookmarkerName,
+                                        suggest_time => zt_datetime:get_now()
+                                    },
+                                    sos_request_handler:maybe_add_bookmarks(BookmarksDb, BookmarkInfo);
+                                <<"unbookmark">> -> 
+                                    sos_request_handler:maybe_remove_bookmarks(BookmarksDb, TargetType, TargetId)
+                            end,
+                        NewInfo = 
+                            maps:merge(Info, #{
+                                bookmarks => NewBookmarks
+                            }),
+                        lager:debug("NewInfo: ~p~n",[NewInfo]),
+                        sos_request_db:save(NewInfo),
+                        cb_context:setters(Context,
+                                    [{fun cb_context:set_resp_data/2, NewInfo},
+                                        {fun cb_context:set_resp_status/2, success}])
+                end;
+            _ ->
+                cb_context:setters(Context,[
+                    {fun cb_context:set_resp_error_msg/2, <<"SosRequest not found">>},
+                    {fun cb_context:set_resp_status/2, <<"error">>},
+                    {fun cb_context:set_resp_error_code/2, 404}
+                ])
+        end;
+
     handle_post(Context, Id, ?PATH_SUPPORT) ->
         ReqJson = cb_context:req_json(Context),
         Type = wh_json:get_value(<<"type">>, ReqJson,<<>>),
@@ -584,7 +644,19 @@ validate_request(Id, ?PATH_SUGGEST, Context, ?HTTP_POST) ->
         fun sos_request_handler:validate_suggest_target_type/2,
         fun sos_request_handler:validate_suggest_target_id/2
     ],
-    lager:debug("validate_request: ~p~n",[ReqJson]),
+    lists:foldl(fun (F, C) ->
+                        F(ReqJson, C)
+                end,
+    Context1,ValidateFuns);
+
+validate_request(Id, ?PATH_BOOKMARK, Context, ?HTTP_POST) ->
+    ReqJson = cb_context:req_json(Context),
+    Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
+    ValidateFuns = [
+        
+        fun sos_request_handler:validate_bookmarker_type/2,
+        fun sos_request_handler:validate_bookmarker_id/2
+    ],
     lists:foldl(fun (F, C) ->
                         F(ReqJson, C)
                 end,
