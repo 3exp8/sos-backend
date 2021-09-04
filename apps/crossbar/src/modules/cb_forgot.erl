@@ -61,8 +61,7 @@ handle_post(Context) ->
 			} = Account | _]  -> 
 		case Status of
 			?USER_STATUS_ACTIVE ->
-				user_actor:start_actor(PhoneNumber),
-				case user_actor:check_otp_rule(PhoneNumber) of 
+				case user_actor:start_actor(PhoneNumber) of 
 					true -> 
 						ConfirmCode = zt_util:create_random_number(),
 						lager:info("CONFIRM_CODE ~p ~n", [ConfirmCode]),

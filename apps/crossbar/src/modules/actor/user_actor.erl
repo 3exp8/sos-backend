@@ -95,12 +95,13 @@ code_change(_Msg, State, _Extra) -> {ok, State}.
 terminate(Reason, State) -> 
     lager:error("~p terminating... reason: ~p, State: ~p~n",[?MODULE, Reason, State]),
     ok. 
-
+-spec start_actor(binary()) -> boolean().
 start_actor(PhoneNumber) -> 
     lager:info("start_actor: ~p ~n",[PhoneNumber]), 
     case zt_util:pid_global(get_pid_name(PhoneNumber)) of 
     undefined -> 
-        start_link(PhoneNumber);
+        start_link(PhoneNumber),
+        true;
     Srv -> 
         lager:info("start_actor: pid: ~p ~n",[Srv]), 
         gen_server:call(Srv, check_otp_rule)
