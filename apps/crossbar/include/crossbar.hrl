@@ -91,6 +91,12 @@
 -define(USER_ROLE_ADMIN, <<"ADMIN">>).  %% admin of a system
 -define(CREATED_SOURCE_APP, <<"customers_app">>).
 
+-define(OBJECT_TYPE_GUEST,<<"guest">>).
+-define(OBJECT_TYPE_USER,<<"user">>).
+-define(OBJECT_TYPE_GROUP,<<"group">>).
+-define(SUGGEST_TARGET_TYPES,[?OBJECT_TYPE_USER, ?OBJECT_TYPE_GROUP]).
+
+
 -define(REQUESTER_TYPE_GUEST,<<"guest">>).
 -define(REQUESTER_TYPE_USER,<<"user">>).
 -define(REQUESTER_TYPE_GROUP,<<"group">>).
