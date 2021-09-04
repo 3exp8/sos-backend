@@ -51,6 +51,7 @@ init() ->
 -define(PATH_MEMBER, <<"members">>).
 -define(PATH_TYPE, <<"types">>).
 -define(PATH_SUGGEST, <<"suggest">>).
+-define(PATH_BOOKMARK, <<"bookmark">>).
 
 
 allowed_methods() -> [?HTTP_GET, ?HTTP_PUT].
@@ -62,7 +63,8 @@ allowed_methods(_Id,?PATH_VERIFY) -> [?HTTP_POST];
 allowed_methods(_Id,?PATH_MEMBER) ->
     [?HTTP_POST, ?HTTP_DELETE];
 
-allowed_methods(_Id,?PATH_SUGGEST) -> [?HTTP_GET].
+allowed_methods(_Id,?PATH_SUGGEST) -> [?HTTP_GET];
+allowed_methods(_Id,?PATH_BOOKMARK) -> [?HTTP_GET].
 
 -spec resource_exists() -> true.
 resource_exists() -> true.
@@ -71,6 +73,7 @@ resource_exists() -> true.
 resource_exists(_Id) -> true.
 
 -spec resource_exists(path_token(),path_token()) -> true.
+resource_exists(_Id,?PATH_BOOKMARK) ->true;
 resource_exists(_Id,?PATH_SUGGEST) ->true;
 resource_exists(_Id,?PATH_VERIFY) ->true;
 resource_exists(_Id,?PATH_MEMBER) ->true.
@@ -115,6 +118,10 @@ authorize_verb(Context, Path, ?HTTP_DELETE) ->
 
 -spec authorize(cb_context:context(), path_token(), path_token()) -> boolean().
 authorize(Context, _Id, ?PATH_VERIFY) ->
+    Role = cb_context:role(Context),
+    Role == ?USER_ROLE_USER;
+
+authorize(Context, _Id, ?PATH_BOOKMARK) ->
     Role = cb_context:role(Context),
     Role == ?USER_ROLE_USER;
 
@@ -181,7 +188,32 @@ handle_get({Req, Context}, Id) ->
                                {fun cb_context:set_resp_error_code/2, 404}])}
     end.
 
-%sos_request_db:find_by_conditions([{<<"suggest_info.target_type">>,<<"group">>},{<<"suggest_info.target_id">>,<<"group372dfa628f08303797acb05751ddfc9a">>}], [], 5, 0).
+% sos_request_db:find_by_conditions([{<<"suggest_info.target_type">>,<<"group">>},{<<"suggest_info.target_id">>,<<"group372dfa628f08303797acb05751ddfc9a">>}], [], 5, 0).
+% sos_request_db:find_by_conditions([{<<"bookmarks#bookmarker_type">>,<<"group">>},{<<"bookmarks#bookmarker_id">>,<<"group372dfa628f08303797acb05751ddfc9a">>}], [], 5, 0).
+handle_get({Req, Context}, Id, ?PATH_BOOKMARK) ->
+    case group_db:find(Id) of
+      #{} = Info ->
+            QueryJson = cb_context:query_string(Context),
+            Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
+            Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
+            PropQueryJson = wh_json:to_proplist(QueryJson),
+            SosRequests = 
+                sos_request_db:find_by_conditions([
+                    {<<"bookmarks.bookmarker_type">>,?OBJECT_TYPE_GROUP},
+                    {<<"bookmarks.bookmarker_id">>,Id}
+                ], PropQueryJson, Limit, Offset),
+          {Req,
+           cb_context:setters(Context,
+                              [{fun cb_context:set_resp_data/2, SosRequests},
+                               {fun cb_context:set_resp_status/2, success}])};
+      _ ->
+          {Req,
+           cb_context:setters(Context,
+                              [{fun cb_context:set_resp_error_msg/2, <<"Group not found">>},
+                               {fun cb_context:set_resp_status/2, <<"error">>},
+                               {fun cb_context:set_resp_error_code/2, 404}])}
+    end;
+
 handle_get({Req, Context}, Id, ?PATH_SUGGEST) ->
     case group_db:find(Id) of
       #{} = Info ->
@@ -484,6 +516,9 @@ validate_request(_Id, ?PATH_MEMBER, Context, _) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
 
 validate_request(_Id, ?PATH_SUGGEST, Context, _) ->
+    cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
+
+validate_request(_Id, ?PATH_BOOKMARK, Context, _) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
 
 validate_request(_Id, _Path, Context, _Verb) ->
