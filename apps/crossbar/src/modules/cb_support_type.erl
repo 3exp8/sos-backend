@@ -27,6 +27,7 @@
   ]).
 
 -define(PATH_SEARCH, <<"search">>).
+-define(PATH_COLOR_TYPES, <<"colors">>).
 
 
 init() ->
@@ -70,6 +71,7 @@ authenticate(Context, Path) ->
 authenticate_verb(_Context, _Path, ?HTTP_GET)  -> true;
 
 authenticate_verb(_Context, ?PATH_SEARCH, _) -> true;
+authenticate_verb(_Context, ?PATH_COLOR_TYPES, _) -> true;
 
 authenticate_verb(Context, _Path, _) ->
     Token = cb_context:auth_token(Context),
@@ -93,6 +95,7 @@ authorize_verb(Context, Path, ?HTTP_GET) ->
     authorize_util:authorize(?MODULE, Context, Path);
 
 authorize_verb(_Context, ?PATH_SEARCH, ?HTTP_POST) -> true;
+authorize_verb(_Context, ?PATH_COLOR_TYPES, ?HTTP_POST) -> true;
 
 authorize_verb(Context, _Path, ?HTTP_POST) ->
     Role = cb_context:role(Context),
@@ -172,6 +175,13 @@ handle_get({Req, Context}, ?PATH_SEARCH) ->
            cb_context:setters(Context,
                               [{fun cb_context:set_resp_data/2, TypesFormated},
                                {fun cb_context:set_resp_status/2, success}])};
+
+handle_get({Req, Context}, ?PATH_COLOR_TYPES) ->
+                                
+    {Req,
+        cb_context:setters(Context,
+            [{fun cb_context:set_resp_data/2, configuration_handler:get_color_types()},
+            {fun cb_context:set_resp_status/2, success}])};
 
 handle_get({Req, Context}, Id) ->
     case support_type_db:find(Id) of
