@@ -7,7 +7,11 @@
     get_supporter_info/2,
     get_suggester_info/1,
     maybe_update_support_status/4,
+    maybe_add_bookmarks/2,
+    maybe_remove_bookmarks/3,
     get_target_type/2,
+    validate_bookmarker_type/2,
+    validate_bookmarker_id/2,
     validate_suggest_target_type/2,
     validate_suggest_target_id/2,
     validate_requester_type/2,
@@ -17,6 +21,64 @@
     validate_search_lat/2,
     validate_search_long/2
 ]).
+
+maybe_add_bookmarks(undefined, BookmarkInfo) -> maybe_add_bookmarks([], BookmarkInfo);
+maybe_add_bookmarks(CurrentBookmarks, #{
+    bookmarker_type := BookmarkerType,
+    bookmarker_id := BookmarkerId
+} = BookmarkInfo) ->
+    IsExist = 
+        lists:any(fun(#{
+            <<"bookmarker_type">> := BookmarkerTypeDb,
+            <<"bookmarker_id">> := BookmarkerIdDb
+        }) -> 
+            case {BookmarkerType, BookmarkerId} of 
+                {BookmarkerTypeDb, BookmarkerIdDb} -> true;
+                _ -> false 
+            end
+        end, CurrentBookmarks),
+    case IsExist of 
+        true -> CurrentBookmarks;
+        _ -> [BookmarkInfo|CurrentBookmarks]
+    end.
+
+
+maybe_remove_bookmarks(undefined,TargetType, TargetId) -> maybe_remove_bookmarks([],TargetType, TargetId);
+maybe_remove_bookmarks(CurrentBookmarks, TargetType, TargetId) ->
+    lists:filtermap(fun(#{
+        <<"bookmarker_type">> := BookmarkerType, 
+        <<"bookmarker_id">> := BookmarkerId 
+    } = BookmarkInfo) -> 
+        case {BookmarkerType, BookmarkerId} of 
+            {TargetType, TargetId} -> false;
+            _ -> {true, BookmarkInfo}
+        end
+    end,CurrentBookmarks).
+
+-spec validate_bookmarker_type(api_binary(), cb_context:context()) -> cb_context:context().
+validate_bookmarker_type(ReqJson, Context) ->
+  Key = <<"bookmarker_type">>,
+  Val = wh_json:get_value(Key, ReqJson, <<>>),
+  case api_util:check_val(Context, Key, Val) of 
+    Context -> 
+    validate_bookmarker_type_value(Key, Val, Context);
+    ErrorContext -> 
+        ErrorContext
+  end.
+
+-spec validate_bookmarker_type_value(binary(), binary(), cb_context:context()) -> cb_context:context().
+validate_bookmarker_type_value(Key, Val, Context) ->
+    case lists:member(Val, ?SUGGEST_TARGET_TYPES) of
+        true -> Context;
+        _ ->
+            Vals = zt_util:arr_to_str(?SUGGEST_TARGET_TYPES),
+            api_util:validate_error(Context, Key, <<"invalid">>, <<"Invalid ",Key/binary,". Value must be ",Vals/binary>>)
+    end.
+
+validate_bookmarker_id(ReqJson, Context) ->
+    Key = <<"bookmarker_id">>,
+    Val = wh_json:get_value(Key, ReqJson, <<>>),
+    api_util:check_val(Context, Key, Val).
 
 %-spec calculate_color_type([]) -> map().
 calculate_color_type([]) -> #{};
