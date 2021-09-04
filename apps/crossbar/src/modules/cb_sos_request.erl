@@ -127,8 +127,6 @@ authorize(Context, Id, ?PATH_SUPPORT = Path) ->
 
 authorize_verb(Context, Id, ?PATH_SUPPORT = Path, _) -> true;
 
-
-
 authorize_verb(Context, _Id, _Path, _) -> false.
 
 -spec validate(cb_context:context()) -> cb_context:context().
@@ -255,6 +253,7 @@ handle_post(Context, Id) ->
             support_types := SupportTypesDb,
             address_info := AddressInfoDb,
             contact_info := ContactInfoDb,
+            color_info := ColorInfoDb,
             share_phone_number := SharePhoneNumberDb,
             medias := MediasDb,
             request_object_status := ObjectStatusDb,
@@ -287,10 +286,17 @@ handle_post(Context, Id) ->
                     ObjectStatusProps -> zt_util:to_map_list(ObjectStatusProps)
                 end,
 
+            NewColorInfo = 
+                case SupportTypes of
+                    SupportTypesDb ->  ColorInfoDb;
+                    _ ->   sos_request_handler:calculate_color_type(SupportTypes)
+                end,
+
             UpdatedTime = zt_datetime:get_now(),
             NewInfo =  maps:merge(RequestInfo,#{
                             description => Description,
                             support_types => SupportTypes,
+                            color_info => NewColorInfo,
                             location => Location,
                             address_info => AddressInfo,
                             contact_info => NewContactInfo,
@@ -412,7 +418,7 @@ maybe_update_support_status(Type, Id, SosRequestInfo, SupportStatus) ->
          }),
     {ok, NewSosRequestInfo}.
 
-get_supporter_info(<<"group">>, Id) -> 
+get_supporter_info(?REQUESTER_TYPE_GROUP, Id) -> 
    case  group_db:find(Id) of 
    notfound -> {error,notfound};
   #{
@@ -421,14 +427,14 @@ get_supporter_info(<<"group">>, Id) ->
   } -> 
     #{
         id => Id,
-        type => <<"group">>,
+        type => ?REQUESTER_TYPE_GROUP,
         name => Name,
         contact_info => ContactInfo
     }
 end;
 
-get_supporter_info(<<"user">>, Id) -> 
-   case  customer_db:find(Id) of 
+get_supporter_info(?REQUESTER_TYPE_USER, Id) -> 
+   case user_db:find(Id) of 
    notfound -> {error,notfound};
   #{
         first_name := FirstName,
@@ -437,7 +443,7 @@ get_supporter_info(<<"user">>, Id) ->
   } -> 
     #{
         id => Id,
-        type => <<"user">>,
+        type => ?REQUESTER_TYPE_USER,
         name => FirstName,
         contact_info => #{
             first_name => FirstName,
@@ -514,7 +520,7 @@ build_condition(support_status, Val) ->
     {<<"status">>,'in',Vals};
 
 build_condition(keyword, Val) -> 
-{'or',[{<<"subject">>,Val},{<<"description">>,Val}]};
+    {'or',[{<<"subject">>,Val},{<<"description">>,Val}]};
 
 build_condition(_,_) -> ignore.
 
@@ -532,7 +538,7 @@ deformat_sorts(Sorts, CurLocation, Unit) ->
 
 get_requester_info(_Id, ?REQUESTER_TYPE_GUEST) -> #{};
 get_requester_info(Id, ?REQUESTER_TYPE_USER) ->
-    case customer_db:find(Id) of
+    case user_db:find(Id) of
         notfound ->
             {error,customer_notfound};
         CustomerInfo -> maps:with([id,first_name, last_name, phone_number],CustomerInfo)
@@ -557,12 +563,12 @@ get_info(ReqJson, Context) ->
     SharePhoneNumbebr = wh_json:get_value(<<"share_phone_number">>, ReqJson, ?SHARE_PHONE_NUMBER_TYPE_PRIVATE),
     Medias = zt_util:to_map_list(wh_json:get_value(<<"medias">>, ReqJson, [])),
     ObjectStatus = zt_util:to_map_list(wh_json:get_value(<<"requester_object_status">>, ReqJson, [])),
-    CreatedTime = zt_datetime:get_now(),
     #{
       subject => Subject,
       priority_type => PriorityType,
       description => Description,
       support_types => SupportTypes,
+      color_info => sos_request_handler:calculate_color_type(SupportTypes),
       location => Location,
       address_info => AddressInfo,
       contact_info => ContactInfo,
@@ -570,7 +576,7 @@ get_info(ReqJson, Context) ->
       requester_object_status => ObjectStatus,
       medias => Medias,
       created_by => app_util:get_requester_id(Context),
-      created_time => CreatedTime
+      created_time => zt_datetime:get_now()
      }.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%

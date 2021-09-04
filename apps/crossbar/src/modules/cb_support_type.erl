@@ -69,9 +69,9 @@ authenticate(Context, Path) ->
 
 authenticate_verb(_Context, _Path, ?HTTP_GET)  -> true;
 
-authenticate_verb(Context, ?PATH_SEARCH, _) -> true;
+authenticate_verb(_Context, ?PATH_SEARCH, _) -> true;
 
-authenticate_verb(Context, Path, _) ->
+authenticate_verb(Context, _Path, _) ->
     Token = cb_context:auth_token(Context),
     app_util:oauth2_authentic(Token, Context).
 
@@ -79,7 +79,7 @@ authenticate_verb(Context, Path, _) ->
 authorize(Context) ->
     authorize_verb(Context, cb_context:req_verb(Context)).
 
-authorize_verb(Context, ?HTTP_GET) -> true;
+authorize_verb(_Context, ?HTTP_GET) -> true;
 
 authorize_verb(Context, ?HTTP_PUT) ->
     Role = cb_context:role(Context),
@@ -92,13 +92,13 @@ authorize(Context, Path) ->
 authorize_verb(Context, Path, ?HTTP_GET) ->
     authorize_util:authorize(?MODULE, Context, Path);
 
-authorize_verb(Context, ?PATH_SEARCH, ?HTTP_POST) -> true;
+authorize_verb(_Context, ?PATH_SEARCH, ?HTTP_POST) -> true;
 
-authorize_verb(Context, Path, ?HTTP_POST) ->
+authorize_verb(Context, _Path, ?HTTP_POST) ->
     Role = cb_context:role(Context),
     Role == ?USER_ROLE_USER;
 
-authorize_verb(Context, Path, ?HTTP_DELETE) ->
+authorize_verb(Context, _Path, ?HTTP_DELETE) ->
     Role = cb_context:role(Context),
     Role == ?USER_ROLE_USER.
 
@@ -109,9 +109,6 @@ validate(Context) ->
 -spec validate(cb_context:context(), path_token()) -> cb_context:context().
 validate(Context, Id) ->
     validate_request(Id, Context, cb_context:req_verb(Context)).
-
-validate(Context, Id, Path) ->
-    validate_request(Id, Path, Context, cb_context:req_verb(Context)).
 
 %%%%%%%%%%%%%%%%
 %%  HANDLERS  %%
@@ -202,8 +199,9 @@ handle_put(Context) ->
         type => wh_json:get_value(<<"type">>, ReqJson,<<>>),
         name => wh_json:get_value(<<"name">>, ReqJson,<<>>),
         unit => wh_json:get_value(<<"unit">>, ReqJson,<<>>),
+        color_info => configuration_handler:get_color_type(wh_json:get_value(<<"color_type">>, ReqJson,<<>>)),
         target_types => zt_util:to_map_list(wh_json:get_value(<<"target_types">>, ReqJson,[])),
-        created_time => zt_util:now_to_utc_binary(os:timestamp()),
+        created_time => zt_datetime:get_now(),
         created_by_id => UserId
     },
     support_type_db:save(Info),
@@ -223,6 +221,7 @@ handle_post(Context, Id) ->
         #{
             name := NameDb,
             unit := UnitDb,
+            color_type := ColorTypeDb,
             target_types := TargetTypesDb
         } = InfoDb -> 
          ReqJson =  cb_context:req_json(Context),
@@ -232,12 +231,19 @@ handle_post(Context, Id) ->
                 TargetTypesProps -> zt_util:to_map_list(TargetTypesProps)
             end,
 
+        ColorTypeInfo = 
+            case wh_json:get_value(<<"color_type">>, ReqJson,<<>>) of 
+                <<>> -> ColorTypeDb;
+                ColorType -> configuration_handler:get_color_type(ColorType)
+            end,
+
          NewInfo = 
             maps:merge(InfoDb, #{
                 name => wh_json:get_value(<<"name">>, ReqJson,NameDb),
-                unit => wh_json:get_value(<<"unit">>, ReqJson,UnitDb), 
+                unit => wh_json:get_value(<<"unit">>, ReqJson,UnitDb),
+                color_info => ColorTypeInfo, 
                 target_types => NewTargetTypes,
-                updated_time => zt_util:now_to_utc_binary(os:timestamp()),
+                updated_time => zt_datetime:get_now(),
                 updated_by_id => cb_context:user_id(Context)
             }),
             support_type_db:save(NewInfo),
@@ -276,12 +282,12 @@ permissions() ->
 validate_request(Context, ?HTTP_GET) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
 
-validate_request(Context, ?HTTP_PUT = Verb) ->
+validate_request(Context, ?HTTP_PUT = _Verb) ->
     ReqJson = cb_context:req_json(Context),
     Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
     ValidateFuns = [
-                    fun validate_type/2,
-                    fun validate_name/2
+                    fun support_type_handler:validate_type/2,
+                    fun support_type_handler:validate_name/2
                    % fun validate_detail_info/2
                 ],
     lists:foldl(fun (F, C) ->
@@ -308,20 +314,9 @@ validate_request(_Id, Context, ?HTTP_DELETE) ->
 validate_request(_Id, Context, _Verb) ->
     Context.
 
-validate_request(_Id, _Path, Context, _Verb) ->
-    Context.
-
 get_sub_fields(Group) ->
     Res = maps:to_list(Group),
     proplists:substitute_aliases([], Res).
 
 get_sub_fields_search(TypeInfo) ->
     maps:without([target_types,created_by_id,created_time,updated_by_id,updated_time],TypeInfo).
-
-validate_type(ReqJson, Context) ->
-    Type = wh_json:get_value(<<"type">>, ReqJson, <<>>),
-    api_util:check_val(Context, <<"type">>, Type).
-
-validate_name(ReqJson, Context) ->
-    Val = wh_json:get_value(<<"name">>, ReqJson, <<>>),
-    api_util:check_val(Context, <<"name">>, Val).

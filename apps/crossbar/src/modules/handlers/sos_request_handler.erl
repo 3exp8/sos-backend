@@ -3,6 +3,7 @@
 -include("crossbar.hrl").
 
 -export([
+    calculate_color_type/1,
     validate_requester_type/2,
     validate_share_phone_number_update/2,
     validate_share_phone_number/2,
@@ -10,6 +11,13 @@
     validate_search_lat/2,
     validate_search_long/2
 ]).
+
+%-spec calculate_color_type([]) -> map().
+calculate_color_type([]) -> #{};
+
+calculate_color_type(SupportTypes) -> 
+
+#{}.
 
 -spec validate_requester_type(api_binary(), cb_context:context()) -> cb_context:context().
 validate_requester_type(ReqJson, Context) ->
@@ -65,7 +73,6 @@ validate_share_phone_number_value(Key, Val, Context) ->
 
 validate_search_lat(ReqJson, Context) ->
     LatPosition = wh_json:get_value(<<"lat_position">>, ReqJson, <<>>),
-
     case LatPosition of
         <<>> ->
             api_util:validate_error(Context, <<"lat_position">>, <<"required">>, <<"Field 'lat_position' is required">>);
@@ -80,7 +87,6 @@ validate_search_lat(ReqJson, Context) ->
 
 validate_search_long(ReqJson, Context) ->
     LongPosition  = wh_json:get_value(<<"long_position">>, ReqJson, <<>>),
-
     case LongPosition of
         <<>> ->
             api_util:validate_error(Context, <<"long_position">>, <<"required">>, <<"Field 'long_position' is required">>);
