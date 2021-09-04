@@ -185,7 +185,7 @@ handle_put(Context) ->
                 #{
                     first_name := FirstName, 
                     last_name := LastName
-                } = customer_db:find(CustomerId),
+                } = user_db:find(CustomerId),
                 Info = #{
                     id => <<"news", Uuid/binary>>,
                     subject => wh_json:get_value(<<"subject">>, ReqJson,<<>>),
@@ -270,7 +270,7 @@ handle_post(Context, Id) ->
          #{
              first_name := FirstName, 
              last_name := LastName
-            } = customer_db:find(CustomerId),
+            } = user_db:find(CustomerId),
 
             NewMedias = 
             case wh_json:get_value(<<"medias">>, ReqJson, []) of

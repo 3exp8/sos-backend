@@ -176,7 +176,7 @@ handle_put(Context) ->
     Uuid = zt_util:get_uuid(),
     Role = cb_context:role(Context),
     CustomerId = cb_context:customer_id(Context),
-    CustomerInfo = customer_db:find(CustomerId),
+    CustomerInfo = user_db:find(CustomerId),
     CustomerInfoFiltered = maps:with([phone_number, id, first_name, last_name],CustomerInfo),
     InfoBase = get_info(ReqJson,CustomerId),
     AdminInfo = maps:merge(CustomerInfoFiltered,#{
@@ -302,7 +302,7 @@ handle_post(Context, Id,?PATH_MEMBER) ->
                 lager:debug("MemberProps: ~p~n",[MemberProps]),
                 MemberMap = zt_util:map_keys_to_atom(zt_util:to_map(MemberProps)),
                 CustomerId = maps:get(id,MemberMap),
-                CustomerInfo = customer_db:find(CustomerId),
+                CustomerInfo = user_db:find(CustomerId),
                 CustomerInfoFiltered = maps:with([phone_number, id, first_name, last_name],CustomerInfo),
                 MemberInfo = maps:merge(CustomerInfoFiltered,#{
                     role => maps:get(role,MemberMap,<<>>)
