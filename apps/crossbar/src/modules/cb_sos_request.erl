@@ -74,8 +74,7 @@ resource_exists(_Id, ?PATH_SUPPORT) ->
 
 -spec authenticate(cb_context:context()) -> boolean().
 authenticate(Context) ->
-    Token = cb_context:auth_token(Context),
-    app_util:maybe_oauth2_authentic(Token, Context).
+    true.
 
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
 authenticate(_Context, ?PATH_SEARCH) -> true;
@@ -126,8 +125,6 @@ authorize(Context, Id, ?PATH_SUPPORT = Path) ->
     authorize_verb(Context, Id, Path, cb_context:req_verb(Context)).
 
 authorize_verb(Context, Id, ?PATH_SUPPORT = Path, _) -> true;
-
-
 
 authorize_verb(Context, _Id, _Path, _) -> false.
 
@@ -255,6 +252,8 @@ handle_post(Context, Id) ->
             support_types := SupportTypesDb,
             address_info := AddressInfoDb,
             contact_info := ContactInfoDb,
+            color_info := ColorInfoDb,
+            share_phone_number := SharePhoneNumberDb,
             medias := MediasDb,
             request_object_status := ObjectStatusDb,
             description := DescriptionDb,
@@ -263,7 +262,12 @@ handle_post(Context, Id) ->
 
             %Doc = get_doc(ReqJson, RequesterId, Db),
             Description = wh_json:get_value(<<"description">>, ReqJson, DescriptionDb),
-            SupportTypes = wh_json:get_value(<<"support_types">>, ReqJson, SupportTypesDb),
+            NewSupportTypes = 
+                case wh_json:get_value(<<"support_types">>, ReqJson, <<>>) of 
+                        <<>> -> SupportTypesDb;
+                        SupportTypeReq -> 
+                            zt_util:to_map_list(SupportTypeReq)
+                end,
             Location = wh_json:get_value(<<"location">>, ReqJson, LocationDb),
             AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson, AddressInfoDb)),
             
@@ -272,6 +276,7 @@ handle_post(Context, Id) ->
                     <<>> ->  ContactInfoDb;
                     ContactInfoProps -> zt_util:to_map(ContactInfoProps)
                 end,
+            NewSharePhoneNumber = wh_json:get_value(<<"share_phone_number">>, ReqJson, SharePhoneNumberDb) ,
 
             NewMedias = 
                 case wh_json:get_value(<<"medias">>, ReqJson, []) of
@@ -285,13 +290,21 @@ handle_post(Context, Id) ->
                     ObjectStatusProps -> zt_util:to_map_list(ObjectStatusProps)
                 end,
 
+            NewColorInfo = 
+                case NewSupportTypes of
+                    SupportTypesDb ->  ColorInfoDb;
+                    _ ->   sos_request_handler:calculate_color_type(NewSupportTypes)
+                end,
+
             UpdatedTime = zt_datetime:get_now(),
             NewInfo =  maps:merge(RequestInfo,#{
                             description => Description,
-                            support_types => SupportTypes,
+                            support_types => NewSupportTypes,
+                            color_info => NewColorInfo,
                             location => Location,
                             address_info => AddressInfo,
                             contact_info => NewContactInfo,
+                            share_phone_number => NewSharePhoneNumber,
                             medias => NewMedias,
                             request_object_status => NewObjectStatus,
                             updated_by => app_util:get_requester_id(Context),
@@ -409,7 +422,7 @@ maybe_update_support_status(Type, Id, SosRequestInfo, SupportStatus) ->
          }),
     {ok, NewSosRequestInfo}.
 
-get_supporter_info(<<"group">>, Id) -> 
+get_supporter_info(?REQUESTER_TYPE_GROUP, Id) -> 
    case  group_db:find(Id) of 
    notfound -> {error,notfound};
   #{
@@ -418,14 +431,14 @@ get_supporter_info(<<"group">>, Id) ->
   } -> 
     #{
         id => Id,
-        type => <<"group">>,
+        type => ?REQUESTER_TYPE_GROUP,
         name => Name,
         contact_info => ContactInfo
     }
 end;
 
-get_supporter_info(<<"user">>, Id) -> 
-   case  customer_db:find(Id) of 
+get_supporter_info(?REQUESTER_TYPE_USER, Id) -> 
+   case user_db:find(Id) of 
    notfound -> {error,notfound};
   #{
         first_name := FirstName,
@@ -434,7 +447,7 @@ get_supporter_info(<<"user">>, Id) ->
   } -> 
     #{
         id => Id,
-        type => <<"user">>,
+        type => ?REQUESTER_TYPE_USER,
         name => FirstName,
         contact_info => #{
             first_name => FirstName,
@@ -511,7 +524,7 @@ build_condition(support_status, Val) ->
     {<<"status">>,'in',Vals};
 
 build_condition(keyword, Val) -> 
-{'or',[{<<"subject">>,Val},{<<"description">>,Val}]};
+    {'or',[{<<"subject">>,Val},{<<"description">>,Val}]};
 
 build_condition(_,_) -> ignore.
 
@@ -527,15 +540,15 @@ deformat_sorts(Sorts, CurLocation, Unit) ->
         end
     end, Sorts).
 
-get_requester_info(_Id, <<"guest">>) -> #{};
-get_requester_info(Id, <<"user">>) ->
-    case customer_db:find(Id) of
+get_requester_info(_Id, ?REQUESTER_TYPE_GUEST) -> #{};
+get_requester_info(Id, ?REQUESTER_TYPE_USER) ->
+    case user_db:find(Id) of
         notfound ->
             {error,customer_notfound};
         CustomerInfo -> maps:with([id,first_name, last_name, phone_number],CustomerInfo)
     end;
 
-get_requester_info(Id, <<"group">>) ->
+get_requester_info(Id, ?REQUESTER_TYPE_GROUP) ->
     %%TODO
     case group_db:find(Id) of 
         notfound -> {error,group_notfound};
@@ -547,25 +560,27 @@ get_info(ReqJson, Context) ->
     Subject = wh_json:get_value(<<"subject">>, ReqJson, <<>>),
     PriorityType = wh_json:get_value(<<"priority_type">>, ReqJson, <<>>),
     Description = wh_json:get_value(<<"description">>, ReqJson, <<>>),
-    SupportTypes = wh_json:get_value(<<"support_types">>, ReqJson, []),
+    SupportTypes = zt_util:to_map_list(wh_json:get_value(<<"support_types">>, ReqJson, [])),
     Location = wh_json:get_value(<<"location">>, ReqJson, <<"0.0,0.0">>),
     AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
     ContactInfo = zt_util:to_map(wh_json:get_value(<<"contact_info">>, ReqJson, [])),
+    SharePhoneNumbebr = wh_json:get_value(<<"share_phone_number">>, ReqJson, ?SHARE_PHONE_NUMBER_TYPE_PRIVATE),
     Medias = zt_util:to_map_list(wh_json:get_value(<<"medias">>, ReqJson, [])),
     ObjectStatus = zt_util:to_map_list(wh_json:get_value(<<"requester_object_status">>, ReqJson, [])),
-    CreatedTime = zt_datetime:get_now(),
     #{
       subject => Subject,
       priority_type => PriorityType,
       description => Description,
       support_types => SupportTypes,
+      color_info => sos_request_handler:calculate_color_type(SupportTypes),
       location => Location,
       address_info => AddressInfo,
       contact_info => ContactInfo,
+      share_phone_number => SharePhoneNumbebr,
       requester_object_status => ObjectStatus,
       medias => Medias,
       created_by => app_util:get_requester_id(Context),
-      created_time => CreatedTime
+      created_time => zt_datetime:get_now()
      }.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -575,10 +590,17 @@ get_info(ReqJson, Context) ->
 validate_request(Context, ?HTTP_GET) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
 
-validate_request(Context, ?HTTP_PUT = Verb) ->
+validate_request(Context, ?HTTP_PUT) ->
     ReqJson = cb_context:req_json(Context),
-    Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
-    validate_sos_request:send_sos_request(ReqJson, Context1);
+    Context1 = cb_context:setters(Context
+                                  ,[{fun cb_context:set_resp_status/2, 'success'}]),	
+    ValidateFuns = [
+                     fun sos_request_handler:validate_requester_type/2
+                    ,fun sos_request_handler:validate_share_phone_number/2
+                   ],
+    lists:foldl(fun(F, C) ->
+                    F(ReqJson, C)
+                end, Context1,  ValidateFuns);
 
 validate_request(Context, _Verb) ->
     Context.
@@ -590,8 +612,8 @@ validate_request(?PATH_SEARCH, Context, ?HTTP_POST = Verb) ->
     ReqJson = cb_context:req_json(Context),
     Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
     ValidateFuns = [
-        fun validate_search_long/2,
-        fun validate_search_lat/2
+        fun sos_request_handler:validate_search_long/2,
+        fun sos_request_handler:validate_search_lat/2
     ],
     lists:foldl(fun (F, C) ->
                         F(ReqJson, C)
@@ -602,7 +624,9 @@ validate_request(?PATH_SEARCH, Context, ?HTTP_POST = Verb) ->
 validate_request(Id, Context, ?HTTP_POST = Verb) ->
     ReqJson = cb_context:req_json(Context),
     Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
-    ValidateFuns = [],
+    ValidateFuns = [
+        fun sos_request_handler:validate_share_phone_number_update/2
+    ],
     lists:foldl(fun (F, C) ->
                         F(Id,ReqJson, C)
                 end,
@@ -634,35 +658,7 @@ validate_request(Id, ?PATH_SUPPORT, Context, ?HTTP_POST = Verb) ->
 
 validate_request(_Id, _, Context, _Verb) ->
                 Context.
-validate_search_lat(ReqJson, Context) ->
-    LatPosition = wh_json:get_value(<<"lat_position">>, ReqJson, <<>>),
 
-    case LatPosition of
-        <<>> ->
-            api_util:validate_error(Context, <<"lat_position">>, <<"required">>, <<"Field 'lat_position' is required">>);
-        _  ->
-            case zt_util:to_float(LatPosition) of
-                Val when is_number(Val) andalso Val > -90 andalso Val < 90 ->
-                    Context;
-                _ ->
-                    api_util:validate_error(Context, <<"lat_position">>, <<"invalid">>, <<"lat_position must be a number and value from -90 to 90">>)
-            end
-    end.
-
-validate_search_long(ReqJson, Context) ->
-    LongPosition  = wh_json:get_value(<<"long_position">>, ReqJson, <<>>),
-
-    case LongPosition of
-        <<>> ->
-            api_util:validate_error(Context, <<"long_position">>, <<"required">>, <<"Field 'long_position' is required">>);
-        _  ->
-            case zt_util:to_float(LongPosition) of
-                Val when is_number(Val) andalso Val > -180 andalso Val < 180 ->
-                    Context;
-                _ ->
-                    api_util:validate_error(Context, <<"long_position">>, <<"invalid">>, <<"long_position must be a number and value from -180 to 180">>)
-            end
-    end.
 get_sub_fields(Info) ->
     Fields = [created_by, updated_by, updated_time],
     maps:without(Fields, Info).

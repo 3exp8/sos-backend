@@ -26,6 +26,7 @@ sumo_wakeup(Doc) ->
     id =>  maps:get(id, Doc, <<>>),
     subject =>  maps:get(subject, Doc, <<>>),
     priority_type =>  maps:get(priority_type, Doc, <<>>),
+    color_info =>  maps:get(color_info, Doc, #{}),
     support_types =>  maps:get(support_types, Doc, []),
     supporters =>  maps:get(supporters, Doc, []),
     medias =>  maps:get(medias, Doc, []),
@@ -33,6 +34,7 @@ sumo_wakeup(Doc) ->
     description =>  maps:get(description, Doc, <<>>),
     address_info =>  maps:get(address_info, Doc, #{}),
     contact_info =>  maps:get(contact_info, Doc, #{}),
+    share_phone_number => maps:get(share_phone_number, Doc, <<"private">>),
     requester_type => maps:get(requester_type, Doc, <<>>),
     requester_info => maps:get(requester_info, Doc, #{}),
     requester_object_status => maps:get(requester_object_status, Doc, []),
@@ -52,6 +54,7 @@ sumo_sleep(Info) ->
     id =>  maps:get(id, Info, <<>>),
     subject =>  maps:get(subject, Info, <<>>),
     priority_type =>  maps:get(priority_type, Info, <<>>),
+    color_info =>  maps:get(color_info, Info, #{}),
     support_types =>  maps:get(support_types, Info, []),
     supporters =>  maps:get(supporters, Info, []),
     medias =>  maps:get(medias, Info, []),
@@ -60,6 +63,7 @@ sumo_sleep(Info) ->
     address_info =>  maps:get(address_info, Info, #{}),
     contact_info =>  maps:get(contact_info, Info, #{}),
     requester_type => maps:get(requester_type, Info, <<>>),
+    share_phone_number => maps:get(share_phone_number, Info, <<"private">>),
     requester_info => maps:get(requester_info, Info, #{}),
     requester_object_status => maps:get(requester_object_status, Info, []),
     verify_status => maps:get(verify_status, Info, <<>>),
@@ -80,10 +84,12 @@ sumo_schema() ->
                             sumo:new_field(description, string),
                             sumo:new_field(subject, string),
                             sumo:new_field(priority_type, binary),
+                            sumo:new_field(color_info, object),
                             sumo:new_field(location, geo_point),
                             sumo:new_field(description, string),
                             sumo:new_field(address_info, object),
-                            sumo:new_field(contact_info, object, contact_info_schema()),
+                            sumo:new_field(contact_info, object),
+                            sumo:new_field(share_phone_number, binary),
                             sumo:new_field(requester_type, binary),
                             sumo:new_field(requester_info, object),
                             sumo:new_field(requester_object_status, object_list),
@@ -95,9 +101,6 @@ sumo_schema() ->
                             sumo:new_field(updated_time, datetime)
     ]).
 
-contact_info_schema() ->
-  [sumo:new_field(name, string),
-   sumo:new_field(phone_number, binary)].
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Public API.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
