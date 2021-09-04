@@ -255,6 +255,7 @@ handle_post(Context, Id) ->
             support_types := SupportTypesDb,
             address_info := AddressInfoDb,
             contact_info := ContactInfoDb,
+            share_phone_number := SharePhoneNumberDb,
             medias := MediasDb,
             request_object_status := ObjectStatusDb,
             description := DescriptionDb,
@@ -272,6 +273,7 @@ handle_post(Context, Id) ->
                     <<>> ->  ContactInfoDb;
                     ContactInfoProps -> zt_util:to_map(ContactInfoProps)
                 end,
+            NewSharePhoneNumber = wh_json:get_value(<<"share_phone_number">>, ReqJson, SharePhoneNumberDb) ,
 
             NewMedias = 
                 case wh_json:get_value(<<"medias">>, ReqJson, []) of
@@ -292,6 +294,7 @@ handle_post(Context, Id) ->
                             location => Location,
                             address_info => AddressInfo,
                             contact_info => NewContactInfo,
+                            share_phone_number => NewSharePhoneNumber,
                             medias => NewMedias,
                             request_object_status => NewObjectStatus,
                             updated_by => app_util:get_requester_id(Context),
@@ -527,15 +530,15 @@ deformat_sorts(Sorts, CurLocation, Unit) ->
         end
     end, Sorts).
 
-get_requester_info(_Id, <<"guest">>) -> #{};
-get_requester_info(Id, <<"user">>) ->
+get_requester_info(_Id, ?REQUESTER_TYPE_GUEST) -> #{};
+get_requester_info(Id, ?REQUESTER_TYPE_USER) ->
     case customer_db:find(Id) of
         notfound ->
             {error,customer_notfound};
         CustomerInfo -> maps:with([id,first_name, last_name, phone_number],CustomerInfo)
     end;
 
-get_requester_info(Id, <<"group">>) ->
+get_requester_info(Id, ?REQUESTER_TYPE_GROUP) ->
     %%TODO
     case group_db:find(Id) of 
         notfound -> {error,group_notfound};
@@ -551,6 +554,7 @@ get_info(ReqJson, Context) ->
     Location = wh_json:get_value(<<"location">>, ReqJson, <<"0.0,0.0">>),
     AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
     ContactInfo = zt_util:to_map(wh_json:get_value(<<"contact_info">>, ReqJson, [])),
+    SharePhoneNumbebr = wh_json:get_value(<<"share_phone_number">>, ReqJson, ?SHARE_PHONE_NUMBER_TYPE_PRIVATE),
     Medias = zt_util:to_map_list(wh_json:get_value(<<"medias">>, ReqJson, [])),
     ObjectStatus = zt_util:to_map_list(wh_json:get_value(<<"requester_object_status">>, ReqJson, [])),
     CreatedTime = zt_datetime:get_now(),
@@ -562,6 +566,7 @@ get_info(ReqJson, Context) ->
       location => Location,
       address_info => AddressInfo,
       contact_info => ContactInfo,
+      share_phone_number => SharePhoneNumbebr,
       requester_object_status => ObjectStatus,
       medias => Medias,
       created_by => app_util:get_requester_id(Context),
@@ -575,10 +580,17 @@ get_info(ReqJson, Context) ->
 validate_request(Context, ?HTTP_GET) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
 
-validate_request(Context, ?HTTP_PUT = Verb) ->
+validate_request(Context, ?HTTP_PUT) ->
     ReqJson = cb_context:req_json(Context),
-    Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
-    validate_sos_request:send_sos_request(ReqJson, Context1);
+    Context1 = cb_context:setters(Context
+                                  ,[{fun cb_context:set_resp_status/2, 'success'}]),	
+    ValidateFuns = [
+                     fun sos_request_handler:validate_requester_type/2
+                    ,fun sos_request_handler:validate_share_phone_number/2
+                   ],
+    lists:foldl(fun(F, C) ->
+                    F(ReqJson, C)
+                end, Context1,  ValidateFuns);
 
 validate_request(Context, _Verb) ->
     Context.
@@ -590,8 +602,8 @@ validate_request(?PATH_SEARCH, Context, ?HTTP_POST = Verb) ->
     ReqJson = cb_context:req_json(Context),
     Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
     ValidateFuns = [
-        fun validate_search_long/2,
-        fun validate_search_lat/2
+        fun sos_request_handler:validate_search_long/2,
+        fun sos_request_handler:validate_search_lat/2
     ],
     lists:foldl(fun (F, C) ->
                         F(ReqJson, C)
@@ -602,7 +614,9 @@ validate_request(?PATH_SEARCH, Context, ?HTTP_POST = Verb) ->
 validate_request(Id, Context, ?HTTP_POST = Verb) ->
     ReqJson = cb_context:req_json(Context),
     Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
-    ValidateFuns = [],
+    ValidateFuns = [
+        fun sos_request_handler:validate_share_phone_number_update/2
+    ],
     lists:foldl(fun (F, C) ->
                         F(Id,ReqJson, C)
                 end,
@@ -634,35 +648,7 @@ validate_request(Id, ?PATH_SUPPORT, Context, ?HTTP_POST = Verb) ->
 
 validate_request(_Id, _, Context, _Verb) ->
                 Context.
-validate_search_lat(ReqJson, Context) ->
-    LatPosition = wh_json:get_value(<<"lat_position">>, ReqJson, <<>>),
 
-    case LatPosition of
-        <<>> ->
-            api_util:validate_error(Context, <<"lat_position">>, <<"required">>, <<"Field 'lat_position' is required">>);
-        _  ->
-            case zt_util:to_float(LatPosition) of
-                Val when is_number(Val) andalso Val > -90 andalso Val < 90 ->
-                    Context;
-                _ ->
-                    api_util:validate_error(Context, <<"lat_position">>, <<"invalid">>, <<"lat_position must be a number and value from -90 to 90">>)
-            end
-    end.
-
-validate_search_long(ReqJson, Context) ->
-    LongPosition  = wh_json:get_value(<<"long_position">>, ReqJson, <<>>),
-
-    case LongPosition of
-        <<>> ->
-            api_util:validate_error(Context, <<"long_position">>, <<"required">>, <<"Field 'long_position' is required">>);
-        _  ->
-            case zt_util:to_float(LongPosition) of
-                Val when is_number(Val) andalso Val > -180 andalso Val < 180 ->
-                    Context;
-                _ ->
-                    api_util:validate_error(Context, <<"long_position">>, <<"invalid">>, <<"long_position must be a number and value from -180 to 180">>)
-            end
-    end.
 get_sub_fields(Info) ->
     Fields = [created_by, updated_by, updated_time],
     maps:without(Fields, Info).

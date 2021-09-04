@@ -91,6 +91,18 @@
 -define(USER_ROLE_ADMIN, <<"ADMIN">>).  %% admin of a system
 -define(CREATED_SOURCE_APP, <<"customers_app">>).
 
+-define(REQUESTER_TYPE_GUEST,<<"guest">>).
+-define(REQUESTER_TYPE_USER,<<"user">>).
+-define(REQUESTER_TYPE_GROUP,<<"group">>).
+
+-define(REQUESTER_TYPES,[?REQUESTER_TYPE_GUEST, ?REQUESTER_TYPE_USER, ?REQUESTER_TYPE_GROUP]).
+
+-define(SHARE_PHONE_NUMBER_TYPE_PRIVATE,<<"private">>).
+-define(SHARE_PHONE_NUMBER_TYPE_PUBLIC,<<"public">>).
+
+-define(SHARE_PHONE_NUMBER_TYPES,[?SHARE_PHONE_NUMBER_TYPE_PRIVATE, ?SHARE_PHONE_NUMBER_TYPE_PUBLIC]).
+
+
 %% grant_type
 -define(GRANT_TYPE, [<<"password">>, <<"refresh_token">>, <<"client_credentials">>, <<"token">>]).
 

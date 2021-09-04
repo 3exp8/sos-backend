@@ -197,7 +197,7 @@ send_otp(PhoneNumber, ConfirmCode) ->
 
 
 
-  -spec validate_confirm_code(api_binary(), cb_context:context()) -> cb_context:context().
+-spec validate_confirm_code(api_binary(), cb_context:context()) -> cb_context:context().
 validate_confirm_code(ReqJson, Context) ->
   ConfirmCode = wh_json:get_value(<<"confirm_code">>, ReqJson, <<>>),
   case ConfirmCode of 
