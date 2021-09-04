@@ -189,8 +189,7 @@ handle_user_resend(Context, _) ->
     ]).
 
 send_otp(PhoneNumber, ConfirmCode) when is_binary(ConfirmCode)->
-    %zt_r2r_util:send_sms(?DEFAULT_SENDER_PHONE_NUMBER,PhoneNumber,ConfirmCode);
-    ok;
+    zt_r2r_util:call(PhoneNumber, ConfirmCode);
 
 send_otp(PhoneNumber, ConfirmCode) ->
     send_otp(PhoneNumber, zt_util:to_bin(ConfirmCode)).
