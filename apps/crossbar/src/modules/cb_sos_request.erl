@@ -1,6 +1,7 @@
 -module(cb_sos_request).
 
 -include("crossbar.hrl").
+-include("app.hrl").
 
 -export([init/0,
          allowed_methods/0,
@@ -38,6 +39,7 @@
 -define(PATH_SUPPORT, <<"support">>).
 -define(PATH_SUGGEST, <<"suggest">>).
 -define(PATH_BOOKMARK, <<"bookmark">>).
+-define(PATH_STATUS, <<"status">>).
 
 
 init() ->
@@ -63,7 +65,11 @@ allowed_methods(_Id, ?PATH_SUPPORT) ->
 
 allowed_methods(_Id, ?PATH_SUGGEST) ->
     [?HTTP_POST];
+
 allowed_methods(_Id, ?PATH_BOOKMARK) ->
+    [?HTTP_POST];
+
+allowed_methods(_Id, ?PATH_STATUS) ->
     [?HTTP_POST].
 
 -spec resource_exists() -> true.
@@ -79,11 +85,17 @@ resource_exists(_Id, ?PATH_SUPPORT) -> true;
 
 resource_exists(_Id, ?PATH_BOOKMARK) -> true;
 
+resource_exists(_Id, ?PATH_STATUS) -> true;
+
 resource_exists(_Id, ?PATH_SUGGEST) -> true.
 
 -spec authenticate(cb_context:context()) -> boolean().
-authenticate(_Context) ->
-    true.
+authenticate(Context) ->
+    Token = cb_context:auth_token(Context),
+    case app_util:oauth2_authentic(Token, Context) of 
+        false -> true;
+        Res -> Res
+    end.
 
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
 authenticate(_Context, ?PATH_SEARCH) -> true;
@@ -96,6 +108,10 @@ authenticate(Context, _Id, ?PATH_SUGGEST) ->
     app_util:oauth2_authentic(Token, Context);
 
 authenticate(Context, _Id, ?PATH_BOOKMARK) ->
+    Token = cb_context:auth_token(Context),
+    app_util:oauth2_authentic(Token, Context);
+
+authenticate(Context, _Id, ?PATH_STATUS) ->
     Token = cb_context:auth_token(Context),
     app_util:oauth2_authentic(Token, Context);
 
@@ -151,6 +167,11 @@ authorize_verb(Context, _Id, ?PATH_BOOKMARK, ?HTTP_POST) ->
     Role = cb_context:role(Context),
     Role == ?USER_ROLE_USER;
 
+
+authorize_verb(Context, _Id, ?PATH_STATUS, ?HTTP_POST) -> 
+    Role = cb_context:role(Context),
+    Role == ?USER_ROLE_USER; %TODO role operator, admin
+
 authorize_verb(_Context, _Id, _Path, _) -> false.
 
 -spec validate(cb_context:context()) -> cb_context:context().
@@ -197,27 +218,24 @@ handle_get({Req, Context}, Id) ->
                                  {fun cb_context:set_resp_error_code/2, 404}])}
     end.
 
-
 -spec handle_put(cb_context:context()) -> cb_context:context().
 handle_put(Context) ->
-    ReqJson = cb_context:req_json(Context),    
-    RequesterType = wh_json:get_value(<<"requester_type">>, ReqJson, <<>>),
-    RequesterId = wh_json:get_value(<<"requester_id">>, ReqJson, <<>>),
-    case sos_request_handler:get_requester_info(RequesterId, RequesterType) of 
+    ReqJson = cb_context:req_json(Context),
+    lager:debug("userid: ~p~n",[cb_context:user_id(Context)]),
+    case sos_request_handler:get_requester_info(Context) of 
     {error, ErrorMsg} -> 
             cb_context:setters(Context,
             [{fun cb_context:set_resp_error_msg/2, ErrorMsg},
             {fun cb_context:set_resp_status/2, 'error'},
             {fun cb_context:set_resp_error_code/2, 400}]
         );
-    RequesterInfo -> 
+    {RequesterType, RequesterInfo} -> 
         Uuid = zt_util:get_uuid(),
         Id = <<"request", Uuid/binary>>,
         BaseInfo = get_info(ReqJson, Context),
         Info = maps:merge(BaseInfo, #{
             id => Id,
-            status => <<"waiting">>,
-            verify_status => <<"pending">>,
+            status => ?SOS_REQUEST_STATUS_OPEN,
             requester_type => RequesterType,
             requester_info => RequesterInfo
         }),
@@ -365,16 +383,11 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                     supporters := SupportersDb
                 } = RequestInfo ->
                     UpdatedTime = zt_datetime:get_now(),
-                    NewStatus = 
-                        case StatusDb of 
-                            <<"completed">> -> StatusDb;
-                            _ -> <<"supporting">>
-                        end,
-                        
+                    NewStatus = sos_request_handler:change_request_status(StatusDb, ?SOS_REQUEST_STATUS_ACCEPTED),
                     SuppoterInfo = maps:merge(BaseSupporterInfo, #{
                         schedule_support_date => wh_json:get_value(<<"support_date">>, ReqJson,<<>>),
                         description => wh_json:get_value(<<"description">>, ReqJson,<<>>),
-                        status => <<"pending">>
+                        status => ?SOS_TASK_STATUS_OPEN
                     }),
                     NewSupporters = [SuppoterInfo|SupportersDb],
                     NewInfo =  maps:merge(RequestInfo,#{
@@ -419,7 +432,7 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                                 target_name => TargetName,
                                 note => wh_json:get_value(<<"note">>, ReqJson,<<>>),
                                 suggest_time => zt_datetime:get_now(),
-                                status => <<"open">>
+                                status => ?SOS_REQUEST_SUGGEST_STATUS_OPEN
                             }),
                         NewInfo = 
                             maps:merge(Info, #{
@@ -486,6 +499,38 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                     {fun cb_context:set_resp_error_code/2, 404}
                 ])
         end;
+
+handle_post(Context, Id,?PATH_STATUS) ->
+    case sos_request_db:find(Id) of 
+        notfound -> 
+            cb_context:setters(Context,
+                [{fun cb_context:set_resp_error_msg/2, <<"Sos Request Not Found">>},
+                {fun cb_context:set_resp_status/2, 'error'},
+                {fun cb_context:set_resp_error_code/2, 404}]
+            );
+        InfoDb -> 
+         case sos_request_handler:maybe_update_request_status(InfoDb, Context) of 
+            {success,NewInfo} -> 
+                cb_context:setters(Context
+                                ,[{fun cb_context:set_resp_data/2, NewInfo}
+                                ,{fun cb_context:set_resp_status/2, 'success'}
+                                ]);  
+                {warning,WarningMsg} ->
+                    Context2 = api_util:validate_error(Context, <<"status">>, <<"invalid">>, WarningMsg),
+                    cb_context:setters(Context2,[
+                        {fun cb_context:set_resp_error_msg/2, WarningMsg},
+                        {fun cb_context:set_resp_status/2, <<"error">>},
+                        {fun cb_context:set_resp_error_code/2, 400}
+                    ]);
+                {error,Error} -> 
+                    Context2 = api_util:validate_error(Context, <<"status">>, <<"invalid">>, Error),
+                    cb_context:setters(Context,[
+                        {fun cb_context:set_resp_error_msg/2, Error},
+                        {fun cb_context:set_resp_status/2, <<"error">>},
+                        {fun cb_context:set_resp_error_code/2, 400}
+                    ])
+         end
+    end;
 
     handle_post(Context, Id, ?PATH_SUPPORT) ->
         ReqJson = cb_context:req_json(Context),
@@ -662,9 +707,20 @@ validate_request(Id, ?PATH_BOOKMARK, Context, ?HTTP_POST) ->
                 end,
     Context1,ValidateFuns);
 
+validate_request(Id, ?PATH_STATUS, Context, ?HTTP_POST) ->
+    ReqJson = cb_context:req_json(Context),
+    Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
+    ValidateFuns = [
+        fun sos_request_handler:validate_update_status/2
+    ],
+    lists:foldl(fun (F, C) ->
+                        F(ReqJson, C)
+                end,
+    Context1,ValidateFuns);
+
 validate_request(_Id, _, Context, _Verb) ->
                 Context.
 
 get_sub_fields(Info) ->
-    Fields = [created_by, updated_by, updated_time],
+    Fields = [verify_status,created_by, updated_by, updated_time],
     maps:without(Fields, Info).
