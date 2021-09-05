@@ -253,8 +253,7 @@ handle_put(Context) ->
 
   ReqJson = cb_context:req_json(Context),
   PhoneNumber  = zt_util:normalize_string(wh_json:get_value(<<"phone_number">>, ReqJson)),
-  %IsDebug =  wh_json:get_value(<<"debug">>, ReqJson),
-  IsDebug = <<"true">>,
+  IsDebug =  wh_json:get_value(<<"debug">>, ReqJson),
   FirstName = wh_json:get_value(<<"first_name">>, ReqJson, <<>>),
   LastName = wh_json:get_value(<<"last_name">>, ReqJson, <<>>),
   
