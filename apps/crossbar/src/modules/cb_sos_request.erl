@@ -1,6 +1,7 @@
 -module(cb_sos_request).
 
 -include("crossbar.hrl").
+-include("app.hrl").
 
 -export([init/0,
          allowed_methods/0,
@@ -216,8 +217,7 @@ handle_put(Context) ->
         BaseInfo = get_info(ReqJson, Context),
         Info = maps:merge(BaseInfo, #{
             id => Id,
-            status => <<"waiting">>,
-            verify_status => <<"pending">>,
+            status => ?SOS_REQUEST_STATUS_OPEN,
             requester_type => RequesterType,
             requester_info => RequesterInfo
         }),
@@ -365,16 +365,11 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                     supporters := SupportersDb
                 } = RequestInfo ->
                     UpdatedTime = zt_datetime:get_now(),
-                    NewStatus = 
-                        case StatusDb of 
-                            <<"completed">> -> StatusDb;
-                            _ -> <<"supporting">>
-                        end,
-                        
+                    NewStatus = sos_request_handler:change_request_status(StatusDb, ?SOS_REQUEST_STATUS_ACCEPTED),
                     SuppoterInfo = maps:merge(BaseSupporterInfo, #{
                         schedule_support_date => wh_json:get_value(<<"support_date">>, ReqJson,<<>>),
                         description => wh_json:get_value(<<"description">>, ReqJson,<<>>),
-                        status => <<"pending">>
+                        status => ?SOS_TASK_STATUS_OPEN
                     }),
                     NewSupporters = [SuppoterInfo|SupportersDb],
                     NewInfo =  maps:merge(RequestInfo,#{
@@ -419,7 +414,7 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                                 target_name => TargetName,
                                 note => wh_json:get_value(<<"note">>, ReqJson,<<>>),
                                 suggest_time => zt_datetime:get_now(),
-                                status => <<"open">>
+                                status => ?SOS_REQUEST_SUGGEST_STATUS_OPEN
                             }),
                         NewInfo = 
                             maps:merge(Info, #{

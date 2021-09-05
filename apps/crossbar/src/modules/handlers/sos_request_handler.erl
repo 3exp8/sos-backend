@@ -1,6 +1,7 @@
 -module(sos_request_handler).
 
 -include("crossbar.hrl").
+-include("app.hrl").
 
 -export([
     calculate_color_type/1,
@@ -19,8 +20,50 @@
     validate_share_phone_number/2,
     validate_requester_type_update/2,
     validate_search_lat/2,
-    validate_search_long/2
+    validate_search_long/2,
+    change_request_status/2,
+    change_task_status/2
 ]).
+
+
+change_request_status(?SOS_REQUEST_STATUS_OPEN,?SOS_REQUEST_STATUS_VERIFIED) -> ?SOS_REQUEST_STATUS_VERIFIED;
+change_request_status(?SOS_REQUEST_STATUS_REOPEN,?SOS_REQUEST_STATUS_VERIFIED) -> ?SOS_REQUEST_STATUS_VERIFIED;
+
+change_request_status(?SOS_REQUEST_STATUS_OPEN,?SOS_REQUEST_STATUS_ACCEPTED) -> ?SOS_REQUEST_STATUS_ACCEPTED;
+change_request_status(?SOS_REQUEST_STATUS_VERIFIED,?SOS_REQUEST_STATUS_ACCEPTED) -> ?SOS_REQUEST_STATUS_ACCEPTED;
+
+change_request_status(?SOS_REQUEST_STATUS_ACCEPTED,?SOS_REQUEST_STATUS_EXECUTING) -> ?SOS_REQUEST_STATUS_EXECUTING;
+
+change_request_status(?SOS_REQUEST_STATUS_EXECUTING,?SOS_REQUEST_STATUS_RESOLVED) -> ?SOS_REQUEST_STATUS_RESOLVED;
+
+change_request_status(?SOS_REQUEST_STATUS_OPEN,?SOS_REQUEST_STATUS_REJECTED) -> ?SOS_REQUEST_STATUS_REJECTED;
+change_request_status(?SOS_REQUEST_STATUS_REOPEN,?SOS_REQUEST_STATUS_REJECTED) -> ?SOS_REQUEST_STATUS_REJECTED;
+
+
+change_request_status(?SOS_REQUEST_STATUS_RESOLVED,?SOS_REQUEST_STATUS_REOPEN) -> ?SOS_REQUEST_STATUS_REOPEN;
+change_request_status(?SOS_REQUEST_STATUS_REJECTED,?SOS_REQUEST_STATUS_REOPEN) -> ?SOS_REQUEST_STATUS_REOPEN;
+
+change_request_status(CurrentStatus,NewStatus) ->
+    lager:debug("change_request_status ignore updateing status ~p to ~p ~n",[CurrentStatus,NewStatus]),
+    CurrentStatus.
+
+change_task_status(?SOS_TASK_STATUS_OPEN,?SOS_TASK_STATUS_EXECUTING) -> ?SOS_TASK_STATUS_EXECUTING;
+change_task_status(?SOS_TASK_STATUS_PENDING,?SOS_TASK_STATUS_EXECUTING) -> ?SOS_TASK_STATUS_EXECUTING;
+change_task_status(?SOS_TASK_STATUS_CANCELED,?SOS_TASK_STATUS_EXECUTING) -> ?SOS_TASK_STATUS_EXECUTING;
+
+change_task_status(?SOS_TASK_STATUS_EXECUTING,?SOS_TASK_STATUS_RESOLVED) -> ?SOS_TASK_STATUS_RESOLVED;
+
+change_task_status(?SOS_TASK_STATUS_OPEN,?SOS_TASK_STATUS_PENDING) -> ?SOS_TASK_STATUS_PENDING;
+change_task_status(?SOS_TASK_STATUS_EXECUTING,?SOS_TASK_STATUS_PENDING) -> ?SOS_TASK_STATUS_PENDING;
+
+change_task_status(?SOS_TASK_STATUS_OPEN,?SOS_TASK_STATUS_CANCELED) -> ?SOS_TASK_STATUS_CANCELED;
+change_task_status(?SOS_TASK_STATUS_PENDING,?SOS_TASK_STATUS_CANCELED) -> ?SOS_TASK_STATUS_CANCELED;
+change_task_status(?SOS_TASK_STATUS_EXECUTING,?SOS_TASK_STATUS_CANCELED) -> ?SOS_TASK_STATUS_CANCELED;
+
+
+change_task_status(CurrentStatus,NewStatus) ->
+    lager:debug("change_task_status ignore updateing status ~p to ~p ~n",[CurrentStatus,NewStatus]),
+    CurrentStatus.
 
 maybe_add_bookmarks(undefined, BookmarkInfo) -> maybe_add_bookmarks([], BookmarkInfo);
 maybe_add_bookmarks(CurrentBookmarks, #{
@@ -102,7 +145,7 @@ maybe_update_support_status(Type, Id, _SosRequestInfo, <<>>) ->
     lager:debug("Do not update support status: Type: ~p, Id: ~p~n",[Type, Id]),
     {error,no_change};
 
-maybe_update_support_status(Type, Id, SosRequestInfo, SupportStatus) -> 
+maybe_update_support_status(Type, Id, SosRequestInfo, NewSupportStatus) -> 
         
     Supporters = maps:get(supporters, SosRequestInfo, []),
     NewSupporters = 
@@ -110,10 +153,11 @@ maybe_update_support_status(Type, Id, SosRequestInfo, SupportStatus) ->
                     case SupportInfo of 
                         #{
                             <<"type">> := Type,
-                            <<"id">> := Id 
+                            <<"id">> := Id,
+                            <<"status">> := CurrentSupportStatus 
                         } ->
                             maps:merge(SupportInfo, #{
-                                <<"status">> => SupportStatus,
+                                <<"status">> => change_task_status(CurrentSupportStatus, NewSupportStatus),
                                 <<"updated_time">> => zt_datetime:get_now()
                             });
                         _ -> SupportInfo
