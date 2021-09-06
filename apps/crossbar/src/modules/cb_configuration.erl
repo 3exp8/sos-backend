@@ -60,28 +60,40 @@ resource_exists(_Path) -> 'true'.
 %% /api/v1/configurations
 -spec authenticate(cb_context:context()) -> boolean().
 authenticate(Context) -> 
-	Token = cb_context:auth_token(Context),
-	app_util:oauth2_authentic(Token, Context).
+	authenticate_verb(Context, cb_context:req_verb(Context)).
+
+	authenticate_verb(_Context, ?HTTP_GET)  -> true;
+
+	authenticate_verb(Context, _) ->
+		Token = cb_context:auth_token(Context),
+		app_util:oauth2_authentic(Token, Context).
 
 %% /api/v1/configurations/configurationid
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
 authenticate(Context, ?PATH_SYSTEM) -> true;
+
 authenticate(Context, _ConfigurationId) -> 
-	Token = cb_context:auth_token(Context),
-	app_util:oauth2_authentic(Token, Context).
+	authenticate_verb(Context, cb_context:req_verb(Context)).
 
 %% /api/v1/configurations
 -spec authorize(cb_context:context()) -> boolean().
 authorize(Context) ->
+	authorize_verb(Context, cb_context:req_verb(Context)).
+
+authorize_verb(_Context, ?HTTP_GET)  -> true;
+
+authorize_verb(Context, _) ->
 	authorize_util:authorize(?MODULE, Context).
+
 
 %% /api/v1/configurations/id
 -spec authorize(cb_context:context(), path_token()) -> boolean().
 
 authorize(Context, ?PATH_SYSTEM) ->
-    authorize_util:authorize(?MODULE, Context);
+	authorize_verb(Context, cb_context:req_verb(Context));
+
 authorize(Context, _Id) ->
-    authorize_util:authorize(?MODULE, Context).
+    authorize_verb(Context, cb_context:req_verb(Context)).
 
 %% /api/v1/configurations
 -spec validate(cb_context:context()) ->  cb_context:context().
