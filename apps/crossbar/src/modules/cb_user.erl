@@ -207,10 +207,28 @@ handle_get({Req, Context}, ?PATH_PROFILE) ->
   UserId = cb_context:user_id(Context),
   lager:debug("UserId: ~p~n",[UserId]),
   case user_db:find(UserId) of 
-    #{} = UserInfo ->   
+    #{} = UserInfo -> 
+    Groups = group_db:find_by_conditions(
+      [
+        {'or',[
+              {<<"members.id">>,UserId},
+              {<<"members#id">>,UserId}
+            ]}],[],10,0),
+    FilteredGroups = 
+            lists:map(fun(#{members := Members} = GroupInfo) -> 
+              
+              MemberInfo = maps:with([id, type, name], GroupInfo),
+              maps:merge(MemberInfo, #{
+                role => user_handler:find_role(Members, UserId)
+              })
+            end,Groups),
+  
     PropUserInfo = get_sub_fields_users(UserInfo),
+    RespData = maps:merge(PropUserInfo,#{
+      groups => FilteredGroups
+    }),
     {Req, cb_context:setters(Context
-                    ,[{fun cb_context:set_resp_data/2, PropUserInfo}
+                    ,[{fun cb_context:set_resp_data/2, RespData}
                     ,{fun cb_context:set_resp_status/2, 'success'}
            ])};
     _ ->
@@ -389,13 +407,14 @@ handle_post(Context, ?PATH_PROFILE) ->
       address := AddressDb, 
       avatar := AvatarDb
     } = UserInfo -> 
-          PhoneNumber = wh_json:get_value(<<"phone_number">>, ReqJson, PhoneNumberDb),
+          %PhoneNumber = wh_json:get_value(<<"phone_number">>, ReqJson, PhoneNumberDb),
           Address = wh_json:get_value(<<"address">>, ReqJson, AddressDb),
           Avatar = wh_json:get_value(<<"avatar">>, ReqJson, AvatarDb), 
           Firstname = wh_json:get_value(<<"first_name">>, ReqJson, FirstnameDb), 
           Lastname = wh_json:get_value(<<"last_name">>, ReqJson, LastnameDb), 
 
-          NewUserInfo = maps:merge(UserInfo, #{phone_number => PhoneNumber, 
+          NewUserInfo = maps:merge(UserInfo, #{
+            %phone_number => PhoneNumber, 
                         address => Address,
                         avatar => Avatar, 
                         first_name => Firstname,
@@ -426,30 +445,38 @@ handle_post(Context, ?PATH_LOGOUT) ->
 handle_post(Context, Id) ->
   ReqJson =  cb_context:req_json(Context),
   AccountId = cb_context:account_id(Context),
+  UserRole = cb_context:role(Context),
   case user_db:find(Id) of 
-    #{time_zone := TimeZoneDb, roles := RolesDb, account_id := AccountIdDb} = AccountInfo -> 
+    #{
+      time_zone := TimeZoneDb, 
+      role := RoleDb, 
+      account_id := AccountIdDb
+    } = AccountInfo -> 
           TimeZone = wh_json:get_value(<<"time_zone">>, ReqJson, TimeZoneDb),
           UpdateTime =  zt_datetime:get_now(),
           
           UpdatedUserDB = get_user_info(ReqJson, AccountInfo, Id, TimeZone, UpdateTime),
-          RolesPropsList = wh_json:get_value(<<"roles">>, ReqJson, []),
           
-          {IsChangedRoles, RolesMapList} = 
-          case RolesPropsList of 
-            [] -> {false, RolesDb};
-            _ -> 
-            {true, 
-              lists:map(fun(RoleProps) -> 
-                maps:from_list(RoleProps)
-              end, RolesPropsList)
-              }
+          {IsChangedRole, Role} = 
+          case wh_json:get_value(<<"role">>, ReqJson, <<>>) of 
+            <<>> -> {false, RoleDb};
+            NewRole -> 
+              case UserRole of 
+                ?USER_ROLE_ADMIN -> 
+                  case lists:member(NewRole, ?USER_ROLES) of 
+                                true -> {true, NewRole};
+                                _ -> {false, RoleDb}
+                  end;
+                _ -> {false, RoleDb}
+
+              end
           end,
           NewUserDb = maps:merge(UpdatedUserDB, #{
-            roles => RolesMapList
+            role => Role
           }),
           user_db:save(NewUserDb),
           spawn(fun() -> 
-            maybe_update_role_token(IsChangedRoles, Id, RolesMapList)
+            maybe_update_role_token(IsChangedRole, Id, Role)
           end),
           RespData = get_sub_fields_users(NewUserDb),
           cb_context:setters(Context, [{fun cb_context:set_resp_data/2, RespData}
@@ -463,11 +490,11 @@ handle_post(Context, Id) ->
   end.
 
 
-maybe_update_role_token(true, UserId, NewRoles) -> 
+maybe_update_role_token(true, UserId, NewRole) -> 
   AccessTokens = access_token_mnesia_db:find_by_user_id(UserId),
   lists:foreach(fun(AccessTokenInfo) -> 
     NewAccessTokenInfo = maps:merge(AccessTokenInfo, #{
-      roles => NewRoles
+      role => NewRole
     }),
     access_token_mnesia_db:save(NewAccessTokenInfo)
   end, AccessTokens),
@@ -738,14 +765,10 @@ get_user_info(ReqJson) ->
     }.
 
 get_user_info(ReqJson, Info, UserId, TimeZone, UpdateTime) ->
-  PhoneNumber = wh_json:get_value(<<"phone_number">>, ReqJson, maps:get(phone_number, Info, <<>>)),
   Address = wh_json:get_value(<<"address">>, ReqJson, maps:get(address, Info, <<>>)),
-  Role = wh_json:get_value(<<"role">>, ReqJson, maps:get(role, Info, <<>>)),
   Avatar = wh_json:get_value(<<"avatar">>, ReqJson, maps:get(avatar, Info, <<>>)), 
   maps:merge(Info,#{
-        phone_number => PhoneNumber, 
         address => Address,
-        role => Role, 
         avatar => Avatar, 
         time_zone => TimeZone, 
         updated_time_dt => UpdateTime, 
@@ -764,9 +787,7 @@ get_sub_fields_users(User) ->
       confirm_code, 
       confirm_code_created_time_dt
   ] ,
-  NewMap = maps:without(Fields, User),
-  Res = maps:to_list(NewMap),
-  proplists:substitute_aliases([], Res).
+  maps:without(Fields, User).
 
 errors() -> 
   Path = <<"users">>,

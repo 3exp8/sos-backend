@@ -4,6 +4,7 @@
 
 -export([
     issue_token/2
+    ,find_role/2
     , check_register_user_existed/1
     , find_unconfirmed_user/1
     , handle_user_confirm/2
@@ -20,6 +21,17 @@
     , validate_curr_password/2
     , validate_new_password/2
 ]).
+
+find_role([], Id) -> <<>>;
+
+find_role([MemberInfo|OtherMembers], Id) -> 
+      case MemberInfo of 
+      #{
+        <<"id">> := Id, 
+        <<"role">> := Role 
+      } ->  Role;
+      _ -> find_role(OtherMembers, Id)
+    end.
 
 issue_token({ok, {Ctx,Auth}}, Context) ->
   emit_response(oauth2:issue_token_and_refresh(Auth, Ctx), Context);
