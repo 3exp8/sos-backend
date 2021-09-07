@@ -9,6 +9,7 @@
     , find_unconfirmed_user/1
     , handle_user_confirm/2
     , handle_user_resend/2
+    , maybe_update_role_token/3
     , send_otp/2
     , create_confirm_code_by_phone/1
     ,validate_role/2
@@ -22,6 +23,17 @@
     , validate_new_password/2
 ]).
 
+maybe_update_role_token(true, UserId, NewRole) -> 
+  AccessTokens = access_token_mnesia_db:find_by_user_id(UserId),
+  lists:foreach(fun(AccessTokenInfo) -> 
+    NewAccessTokenInfo = maps:merge(AccessTokenInfo, #{
+      role => NewRole
+    }),
+    access_token_mnesia_db:save(NewAccessTokenInfo)
+  end, AccessTokens),
+  %TODO with refresh_token
+ok;
+maybe_update_role_token(false, _UserId, _NewRoles) -> ok.
 find_role([], Id) -> <<>>;
 
 find_role([MemberInfo|OtherMembers], Id) -> 

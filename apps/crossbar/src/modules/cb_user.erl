@@ -52,16 +52,16 @@ init() ->
 -spec allowed_methods(path_token()) -> http_methods().
 -spec allowed_methods(path_token(), ne_binary()) -> http_methods().
 
-%% /api/v1/account
+%% /api/v1/users
 allowed_methods() ->
   [?HTTP_GET, ?HTTP_PUT].
 
-%% /api/v1/account/accountid
+%% /api/v1/users/{id}
 allowed_methods(_Path) ->
   [?HTTP_GET, ?HTTP_POST, ?HTTP_PUT].
 
-%% /api/v1/account/accountid/path
-allowed_methods(_AccountId, _Path) ->
+%% /api/v1/users/{id}/path
+allowed_methods(_Id, _Path) ->
   [?HTTP_POST].
 
 
@@ -69,21 +69,21 @@ allowed_methods(_AccountId, _Path) ->
 -spec resource_exists(path_token()) -> 'true'.
 -spec resource_exists(path_token(), ne_binary()) -> boolean().
 
-%% /api/v1/account
+%% /api/v1/users
 resource_exists() -> 'true'.
 
-%% /api/v1/account/accountid
+%% /api/v1/users/{id}
 resource_exists(?PATH_LOGOUT) -> 'true';
 
 resource_exists(_Path) -> 'true'.
 
-%% /api/v1/account/path
+%% /api/v1/users/path
 resource_exists(_Id, ?PATH_CONFIRM) -> 'true';
 resource_exists(_Id, ?PATH_PASSWORD_CHANGE) -> 'true';
 resource_exists(_Id, ?PATH_LOGOUT) -> 'true';
 resource_exists(_Id, _Path) -> 'false'.
 
-%% /api/v1/account
+%% /api/v1/users
 -spec authenticate(cb_context:context()) -> boolean().
 authenticate(Context) ->
   authenticate_with_method(Context, cb_context:req_verb(Context)).
@@ -94,45 +94,52 @@ authenticate_with_method(Context, ?HTTP_GET) ->
   Token = cb_context:auth_token(Context),
   app_util:oauth2_authentic(Token, Context).
 
-%% /api/v1/account/accountid
+%% /api/v1/users/{id}
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
 authenticate(_Context, ?PATH_CONFIRM) -> true;
 authenticate(_Context, ?PATH_RESEND) -> true;
-authenticate(Context, _Path) ->
+authenticate(Context, _Id) ->
   Token = cb_context:auth_token(Context),
-  Res = app_util:oauth2_authentic(Token, Context),
-lager:debug("authenticate: ~p~n",[Res]),
-  Res.
+  app_util:oauth2_authentic(Token, Context).
 
-%% /api/v1/account/accountid/path
+%% /api/v1/users/{id}/path
 -spec authenticate(cb_context:context(), path_token(), path_token()) -> boolean().
-authenticate(_Context, _AccountId, ?PATH_CONFIRM) -> true;
+authenticate(_Context, _Id, ?PATH_CONFIRM) -> true;
 
-authenticate(Context, _AccountId, ?PATH_PASSWORD_CHANGE) ->
+authenticate(Context, _Id, ?PATH_PASSWORD_CHANGE) ->
   Token = cb_context:auth_token(Context),
   app_util:oauth2_authentic(Token, Context);
 
-authenticate(Context, _AccountId, ?PATH_LOGOUT) ->
+authenticate(Context, _Id, ?PATH_LOGOUT) ->
   Token = cb_context:auth_token(Context),
   app_util:oauth2_authentic(Token, Context);
 
-authenticate(_Context, _AccountId, _Path) -> false. 
+authenticate(_Context, _Id, _Path) -> false. 
 
 -spec authorize(cb_context:context()) -> boolean().
 -spec authorize(cb_context:context(), path_token()) -> boolean().
 -spec authorize(cb_context:context(), path_token(), path_token()) -> boolean().
 authorize(Context) ->
-  authorize_util:authorize(?MODULE, Context).
+  authorize_verb(Context, cb_context:req_verb(Context)).
 
-authorize(Context, ?PATH_CREATE = Path) ->
-    Role = cb_context:role(Context),
-    lager:debug("create user Role: ~p~n",[Role]),
-    Role == ?USER_ROLE_ADMIN;
+authorize_verb(Context, ?HTTP_PUT) -> true;
+
+authorize_verb(Context, ?HTTP_GET) -> %Admin and opeator have permission to get list user
+  Role = cb_context:role(Context),
+  lists:member(Role, [?USER_ROLE_ADMIN,?USER_ROLE_OPERATOR]).
 
 authorize(_Context, ?PATH_PROFILE = _Path) -> true;
+authorize(_Context, ?PATH_RESEND = _Path) -> true;
+authorize(_Context, ?PATH_CONFIRM = _Path) -> true;
 
-authorize(_Context, _Id) ->
-    true. 
+authorize(Context, ?PATH_CREATE = Path) ->
+  authorize_verb(Context, Path, cb_context:req_verb(Context)).
+
+authorize_verb(Context, Id, ?HTTP_GET) -> true;
+
+authorize_verb(Context, Id, ?HTTP_POST) -> % Update other role, create user
+  Role = cb_context:role(Context),
+  Role == ?USER_ROLE_ADMIN.
 
 authorize(_Context, _Id, _Path) ->
     true.
@@ -141,68 +148,77 @@ authorize(_Context, _Id, _Path) ->
 -spec validate(cb_context:context(), path_token()) ->  cb_context:context().
 -spec validate(cb_context:context(), path_token(), path_token()) ->  cb_context:context().
 
-%% Validate resource : /api/v1/account
+%% Validate resource : /api/v1/users
 validate(Context) ->
   validate_user(Context, cb_context:req_verb(Context)).
 
 
-%% Validate resource : /api/v1/account/accountid
-validate(Context, AccountId) ->
-  validate_user(Context, AccountId, cb_context:req_verb(Context)).
+%% Validate resource : /api/v1/users/{id}
+validate(Context, Id) ->
+  validate_user(Context, Id, cb_context:req_verb(Context)).
 
-%% Validate resource : /api/v1/account/accountid/path
-validate(Context, AccountId, Path) ->
-  validate_user(Context, AccountId, Path, cb_context:req_verb(Context)).
+%% Validate resource : /api/v1/users/{id}/path
+validate(Context, Id, Path) ->
+  validate_user(Context, Id, Path, cb_context:req_verb(Context)).
 
 -spec validate_user(cb_context:context(), http_method()) -> cb_context:context().
 -spec validate_user(cb_context:context(), path_token(), http_method()) -> cb_context:context().
 -spec validate_user(cb_context:context(), path_token(), path_token(), http_method()) -> cb_context:context().
 
-%% PUT /api/v1/account
+%% PUT /api/v1/users
 validate_user(Context, ?HTTP_PUT = Verb) ->
   validate_request(Context, Verb);
 
-%% GET /api/v1/account
+%% GET /api/v1/users
 validate_user(Context, ?HTTP_GET = Verb) ->
   validate_request(Context, Verb).
 
-%% POST /api/v1/account/accountid
+%% POST /api/v1/users/{id}
 validate_user(Context, Path, ?HTTP_PUT = Verb) ->
   validate_request(Path, Context, Verb);
 
-validate_user(Context, AccountId, ?HTTP_POST = Verb) ->
-  validate_request(AccountId, Context, Verb);
+validate_user(Context, Id, ?HTTP_POST = Verb) ->
+  validate_request(Id, Context, Verb);
 
-%% GET /api/v1/account/accountid
-validate_user(Context, AccountId, ?HTTP_GET = Verb) ->
-  validate_request(AccountId, Context, Verb).
+%% GET /api/v1/users/{id}
+validate_user(Context, Id, ?HTTP_GET = Verb) ->
+  validate_request(Id, Context, Verb).
 
-%% POST /api/v1/account/accountid/path
-validate_user(Context, AccountId, Path, ?HTTP_POST = Verb) ->
-  validate_request(AccountId, Context, Path, Verb);
+%% POST /api/v1/users/{id}/path
+validate_user(Context, Id, Path, ?HTTP_POST = Verb) ->
+  validate_request(Id, Context, Path, Verb);
 
-validate_user(Context, _AccountId, _Path, _Verb) ->
+validate_user(Context, _Id, _Path, _Verb) ->
   Context.
 
 
 -spec handle_get(req_ctx()) -> req_ctx().
 -spec handle_get(req_ctx(), path_token()) -> req_ctx().
-%% GET api/v1/account
+%% GET api/v1/users
 handle_get({Req, Context}) ->
   QueryJson = cb_context:query_string(Context),
-  AccountId = cb_context:account_id(Context),
   Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
   Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
   PropQueryJson = wh_json:to_proplist(QueryJson),
-  Users = user_db:find_by_conditions([{account_id, AccountId}], PropQueryJson, Limit, Offset),
-  PropUsers = lists:map(fun(Account) ->
+  Role = cb_context:role(Context),
+  RequiredConds = 
+    case Role of 
+      ?USER_ROLE_ADMIN -> [];
+      ?USER_ROLE_OPERATOR -> [{role,'in',[?USER_ROLE_OPERATOR,?USER_ROLE_USER]}];
+      _ -> 
+        UserId = cb_context:user_id(Context),
+        [{user_id,UserId}]
+    end,  
+  Users = user_db:find_by_conditions(RequiredConds, PropQueryJson, Limit, Offset),
+  PropUsers = 
+    lists:map(fun(Account) ->
           get_sub_fields_users(Account) end, 
-      Users),
+  Users),
   {Req, cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_data/2, PropUsers}
                                   ,{fun cb_context:set_resp_status/2, 'success'}])}.
 
-%% GET api/v1/account/accountid
+%% GET api/v1/users/{id}
 handle_get({Req, Context}, ?PATH_PROFILE) ->
   UserId = cb_context:user_id(Context),
   lager:debug("UserId: ~p~n",[UserId]),
@@ -241,37 +257,42 @@ handle_get({Req, Context}, ?PATH_PROFILE) ->
   end;
 
 handle_get({Req, Context}, Id) ->
-  AccountId = cb_context:account_id(Context),
   Role = cb_context:role(Context),	
+  UserId = cb_context:user_id(Context),
+  lager:debug("Logined  Get Id: ~p,  Logined Id: ~p~n",[Id, UserId]),
   
-  lager:debug("Logined 2 account: ~p, Get Id: ~p,  Logined Id: ~p~n",[AccountId, Id, cb_context:user_id(Context)]),
-  case user_db:find(Id) of 
-    #{account_id := AccountIdDb} = AccountInfo -> 	
-      if 
-        Role == ?USER_ROLE_ADMIN; 
-        Role == ?USER_ROLE_USER andalso AccountIdDb == AccountId ->
-          PropAccount = get_sub_fields_users(AccountInfo),
-          {Req, cb_context:setters(Context
-                                   ,[{fun cb_context:set_resp_data/2, PropAccount}
-                                     ,{fun cb_context:set_resp_status/2, 'success'}
-                                    ])};
-        true ->
-          Context2 = api_util:validate_error(Context, <<"permission">>, <<"invalid">>, <<"forbidden">>), 
-          {Req, cb_context:setters(Context2,
-                                   [{fun cb_context:set_resp_error_msg/2, <<"Forbidden">>},
-                                    {fun cb_context:set_resp_status/2, <<"error">>},
-                                    {fun cb_context:set_resp_error_code/2, 403}
-                                   ])}
-      end;
+  ReqConds =
+  case Role of 
+      ?USER_ROLE_ADMIN -> [];
+      ?USER_ROLE_OPERATOR -> 
+              [{'or',[
+                      {role,?USER_ROLE_USER},
+                      {'and',[
+                                {role,?USER_ROLE_OPERATOR},
+                                {id,UserId}
+                              ]}
+                    ]
+                }];
+      ?USER_ROLE_USER -> [{id,UserId}]
+  end,
+  QueryJson = cb_context:query_string(Context),
+  case user_db:find_by_conditions([{id,Id}|ReqConds],[{<<"sort_created_time">>, desc}|QueryJson],1,0) of 
+    [UserInfo] -> 	
+      UserInfoFiltered = get_sub_fields_users(UserInfo),
+      {Req, cb_context:setters(Context
+                             ,[{fun cb_context:set_resp_data/2, UserInfoFiltered}
+                               ,{fun cb_context:set_resp_status/2, 'success'}
+                  ])};
     _ ->
       Context2 = api_util:validate_error(Context, <<"user">>, <<"not_found">>, <<"user_notfound">>), 
-      {Req, cb_context:setters(Context2, [{fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
-                                {fun cb_context:set_resp_status/2, <<"error">>},
-                                {fun cb_context:set_resp_error_code/2, 404}])}
+      {Req, cb_context:setters(Context2, [
+              {fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
+              {fun cb_context:set_resp_status/2, <<"error">>},
+              {fun cb_context:set_resp_error_code/2, 404}])}
   end. 
 
 
-%% PUT api/v1/account
+%% PUT api/v1/users
 -spec handle_put(cb_context:context()) -> cb_context:context().
 handle_put(Context) ->
 
@@ -377,10 +398,10 @@ handle_put(Context, ?PATH_CREATE) ->
                           ,[{fun cb_context:set_resp_data/2, RespData}
                             ,{fun cb_context:set_resp_status/2, 'success'}]);
 
-handle_put(Context, _AccountId) ->
+handle_put(Context, _Id) ->
   ?MODULE:handle_put(Context).
 
-%% POST api/v1/account/accountid
+%% POST api/v1/users/{id}
 -spec handle_post(cb_context:context(), path_token()) -> cb_context:context().
 
 handle_post(Context, ?PATH_CONFIRM) ->
@@ -407,14 +428,12 @@ handle_post(Context, ?PATH_PROFILE) ->
       address := AddressDb, 
       avatar := AvatarDb
     } = UserInfo -> 
-          %PhoneNumber = wh_json:get_value(<<"phone_number">>, ReqJson, PhoneNumberDb),
           Address = wh_json:get_value(<<"address">>, ReqJson, AddressDb),
           Avatar = wh_json:get_value(<<"avatar">>, ReqJson, AvatarDb), 
           Firstname = wh_json:get_value(<<"first_name">>, ReqJson, FirstnameDb), 
           Lastname = wh_json:get_value(<<"last_name">>, ReqJson, LastnameDb), 
 
           NewUserInfo = maps:merge(UserInfo, #{
-            %phone_number => PhoneNumber, 
                         address => Address,
                         avatar => Avatar, 
                         first_name => Firstname,
@@ -436,47 +455,85 @@ handle_post(Context, ?PATH_PROFILE) ->
 
 handle_post(Context, ?PATH_PASSWORD_CHANGE) ->  
   UserId = cb_context:user_id(Context),
-  handle_post(Context, UserId, ?PATH_PASSWORD_CHANGE);
+  ReqJson =  cb_context:req_json(Context),
+  CurrPass  = wh_json:get_value(<<"current_password">>, ReqJson), 
+  NewPass = wh_json:get_value(<<"new_password">>, ReqJson),
+  Info = user_db:find(UserId),
+  #{
+    password := CurrPassHashServer
+  } = Info,
+  PassHash = zt_util:to_str(CurrPassHashServer),
+  {ok, ProvidedHash} = bcrypt:hashpw(CurrPass, PassHash),
+  if  
+      ProvidedHash == PassHash ->
+          {ok, Salt} = bcrypt:gen_salt(?WORKFACTOR),
+          {ok, NewPassHash} = bcrypt:hashpw(NewPass, Salt),
+          UpdatedUserDB = 
+                maps:merge(Info, #{
+                        password => zt_util:to_bin(NewPassHash), 
+                        updated_time_dt =>  zt_datetime:get_now(),
+                        updated_by =>  UserId
+                 }),
+          user_db:save(UpdatedUserDB),
+          api_doc:del_tokens_of_user(UserId),
+          RespData = [{<<"id">>, UserId}],
+          cb_context:setters(Context,[
+                      {fun cb_context:set_resp_data/2, RespData}
+                      ,{fun cb_context:set_resp_status/2, 'success'}
+                    ]);
+      true ->
+          Context2 = api_util:validate_error(Context, <<"current_password">>, <<"invalid">>, <<"current_password_invalid">>), 
+          cb_context:setters(Context2,
+                                     [{fun cb_context:set_resp_error_msg/2, <<"Invalid Current Password">>},
+                                      {fun cb_context:set_resp_status/2, <<"error">>},
+                                      {fun cb_context:set_resp_error_code/2, 400}
+                                     ])
+
+  end;
 
 handle_post(Context, ?PATH_LOGOUT) ->
   UserId = cb_context:user_id(Context),
-  handle_post(Context, UserId, ?PATH_LOGOUT);
+  Role = cb_context:role(Context),
+  ReqJson =  cb_context:req_json(Context),
+  Token = cb_context:auth_token(Context),
+  DeviceId = wh_json:get_value(<<"device_id">>, ReqJson, <<>>),
+  Type = wh_json:get_value(<<"type">>, ReqJson, <<>>),
+  lager:debug("Role: ~p~n",[Role]),
+  access_token_mnesia_db:del_by_token(Token),
+  refresh_token_db:del_by_token(Token),
+  RespData = [{token, Token}],
+  cb_context:setters(Context ,[{fun cb_context:set_resp_data/2, RespData}
+                                           ,{fun cb_context:set_resp_status/2, 'success'}]);
   
 handle_post(Context, Id) ->
   ReqJson =  cb_context:req_json(Context),
-  AccountId = cb_context:account_id(Context),
   UserRole = cb_context:role(Context),
+  UserId = cb_context:user_id(Context),
   case user_db:find(Id) of 
     #{
-      time_zone := TimeZoneDb, 
-      role := RoleDb, 
-      account_id := AccountIdDb
-    } = AccountInfo -> 
-          TimeZone = wh_json:get_value(<<"time_zone">>, ReqJson, TimeZoneDb),
-          UpdateTime =  zt_datetime:get_now(),
-          
-          UpdatedUserDB = get_user_info(ReqJson, AccountInfo, Id, TimeZone, UpdateTime),
-          
+      role := RoleDb,
+      address := AddressDb,
+      avatar := AvatarDb
+    } = Info ->           
           {IsChangedRole, Role} = 
           case wh_json:get_value(<<"role">>, ReqJson, <<>>) of 
             <<>> -> {false, RoleDb};
             NewRole -> 
-              case UserRole of 
-                ?USER_ROLE_ADMIN -> 
-                  case lists:member(NewRole, ?USER_ROLES) of 
-                                true -> {true, NewRole};
-                                _ -> {false, RoleDb}
-                  end;
+              case lists:member(NewRole, ?USER_ROLES) of 
+                true -> {true, NewRole};
                 _ -> {false, RoleDb}
-
               end
           end,
-          NewUserDb = maps:merge(UpdatedUserDB, #{
-            role => Role
+          NewUserDb = maps:merge(Info, #{
+            role => Role,
+            address => wh_json:get_value(<<"address">>, ReqJson, AddressDb),
+            avatar => wh_json:get_value(<<"avatar">>, ReqJson, AvatarDb), 
+            updated_time_dt => zt_datetime:get_now(), 
+            updated_by => UserId
           }),
           user_db:save(NewUserDb),
           spawn(fun() -> 
-            maybe_update_role_token(IsChangedRole, Id, Role)
+            user_handler:maybe_update_role_token(IsChangedRole, Id, Role)
           end),
           RespData = get_sub_fields_users(NewUserDb),
           cb_context:setters(Context, [{fun cb_context:set_resp_data/2, RespData}
@@ -489,19 +546,6 @@ handle_post(Context, Id) ->
                           {fun cb_context:set_resp_error_code/2, 404}])
   end.
 
-
-maybe_update_role_token(true, UserId, NewRole) -> 
-  AccessTokens = access_token_mnesia_db:find_by_user_id(UserId),
-  lists:foreach(fun(AccessTokenInfo) -> 
-    NewAccessTokenInfo = maps:merge(AccessTokenInfo, #{
-      role => NewRole
-    }),
-    access_token_mnesia_db:save(NewAccessTokenInfo)
-  end, AccessTokens),
-  %TODO with refresh_token
-ok;
-maybe_update_role_token(false, _UserId, _NewRoles) -> ok.
-
 %% POST api/v1/users/{id}/confirm
 %TODO 
 handle_post(Context, UserId, ?PATH_CONFIRM) ->
@@ -509,110 +553,23 @@ handle_post(Context, UserId, ?PATH_CONFIRM) ->
   user_handler:handle_user_confirm(Context, UserInfo);
 
 %% POST api/v1/users/{id}/change_password
-%TODO 
-handle_post(Context, Id, ?PATH_PASSWORD_CHANGE) ->	
-  Role = cb_context:role(Context), 
-  case user_db:find(Id) of 
-    #{
-        id := UserIdDb, 
-        password := CurrPassHashServer
-      } = Info -> 
-      if 	Role == ?USER_ROLE_ADMIN; 
-          Role == ?USER_ROLE_USER andalso Id == UserIdDb -> 	
-            ReqJson =  cb_context:req_json(Context),
-            CurrPass  = wh_json:get_value(<<"current_password">>, ReqJson), 
-            NewPass = wh_json:get_value(<<"new_password">>, ReqJson),
-            PassHash = zt_util:to_str(CurrPassHashServer),
-            {ok, ProvidedHash} = bcrypt:hashpw(CurrPass, PassHash),
-            if  ProvidedHash == PassHash ->
-                  UpdatedTime = zt_datetime:get_now(),
-                  {ok, Salt} = bcrypt:gen_salt(?WORKFACTOR),
-                  {ok, NewPassHash} = bcrypt:hashpw(NewPass, Salt),
-                  UpdatedUserDB = maps:merge(Info, #{
-                        password => zt_util:to_bin(NewPassHash), 
-                        updated_time_dt =>  UpdatedTime,
-                        updated_by =>  UserIdDb
-                  }),
-                  user_db:save(UpdatedUserDB),
-                  api_doc:del_tokens_of_user(Id),
-                  RespData = [{<<"id">>, Id}],
-                  cb_context:setters(Context
-                                     ,[{fun cb_context:set_resp_data/2, RespData}
-                                       ,{fun cb_context:set_resp_status/2, 'success'}
-                                      ]);
-                true ->
-                  Context2 = api_util:validate_error(Context, <<"current_password">>, <<"invalid">>, <<"current_password_invalid">>), 
-                  cb_context:setters(Context2,
-                                     [{fun cb_context:set_resp_error_msg/2, <<"Invalid Current Password">>},
-                                      {fun cb_context:set_resp_status/2, <<"error">>},
-                                      {fun cb_context:set_resp_error_code/2, 400}
-                                     ])
-
-            end;
-          true ->
-            Context2 = api_util:validate_error(Context, <<"permission">>, <<"invalid">>, <<"forbidden">>), 
-            cb_context:setters(Context2,
-                               [{fun cb_context:set_resp_error_msg/2, <<"Forbidden">>},
-                                {fun cb_context:set_resp_status/2, <<"error">>},
-                                {fun cb_context:set_resp_error_code/2, 403}
-                               ])
-      end;
-    _ ->
-      Context2 = api_util:validate_error(Context, <<"user">>, <<"not_found">>, <<"user_notfound">>), 
-      cb_context:setters(Context2,
-                         [{fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
-                          {fun cb_context:set_resp_status/2, <<"error">>},
-                          {fun cb_context:set_resp_error_code/2, 404}
-                         ])
-  end;
-
-
-%% POST api/v1/account/accountid/logout
-handle_post(Context, Id, ?PATH_LOGOUT) ->
-  Role = cb_context:role(Context),
-  AccountIdDb = cb_context:account_id(Context),
-  UserId = cb_context:user_id(Context),
-  ReqJson =  cb_context:req_json(Context),
-  Token = cb_context:auth_token(Context),
-  DeviceId = wh_json:get_value(<<"device_id">>, ReqJson, <<>>),
-  Type = wh_json:get_value(<<"type">>, ReqJson, <<>>),
-  lager:debug("Role: ~p~n",[Role]),
-  if  Role == ?USER_ROLE_ADMIN;
-      Role == ?USER_ROLE_USER andalso Id == UserId->
-              access_token_mnesia_db:del_by_token(Token),
-              refresh_token_db:del_by_token(Token),
-              RespData = [{token, Token}],
-              cb_context:setters(Context ,[{fun cb_context:set_resp_data/2, RespData}
-                                           ,{fun cb_context:set_resp_status/2, 'success'}]);	
-      true -> 
-        cb_context:setters(Context,
-                           [{fun cb_context:set_resp_error_msg/2, <<"Forbidden">>},
-                            {fun cb_context:set_resp_status/2, <<"error">>},
-                            {fun cb_context:set_resp_error_code/2, 403}])
-  end;
-
-%% POST api/v1/account/accountid/change_password
-handle_post(Context, _AccountId, _Path) ->
+handle_post(Context, _Id, _Path) ->
   Context.
 
 permissions() ->
-  DefaultPermissions = authorize_util:default_permission(?MODULE),
-  DefaultPermissions.
-  %DefaultPermissions ++ [?PERMISSION_CREATE_USER_DESC].
-  
+  authorize_util:default_permission(?MODULE).  
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Internal Function
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -spec  validate_request(cb_context:context(), http_method()) -> cb_context:context().
 
-%% PUT api/v1/account
+%% PUT api/v1/users
 validate_request(Context, ?HTTP_PUT) ->
   ReqJson = cb_context:req_json(Context),
   Context1 = cb_context:setters(Context
-                                ,[{fun cb_context:set_resp_status/2, 'success'}]),	
+                ,[{fun cb_context:set_resp_status/2, 'success'}]),	
   ValidateFuns = [
-    %fun validate_email/2
                  fun user_handler:validate_phone_number/2
                 ,fun user_handler:validate_password/2
               ],
@@ -620,7 +577,7 @@ validate_request(Context, ?HTTP_PUT) ->
                   F(ReqJson, C)
               end, Context1,  ValidateFuns);
 
-%%GET api/v1/account
+%%GET api/v1/users
 validate_request(Context, ?HTTP_GET) ->
   cb_context:setters(Context
                      ,[{fun cb_context:set_resp_status/2, 'success'}]) ;
@@ -628,9 +585,9 @@ validate_request(Context, ?HTTP_GET) ->
 validate_request(Context, _Verb) ->
   Context.
 
-%%GET api/v1/account/accountid
+%%GET api/v1/users/{id}
 -spec  validate_request(path_token(), cb_context:context(), http_method()) -> cb_context:context().
-validate_request(_AccountId, Context, ?HTTP_GET) ->
+validate_request(_Id, Context, ?HTTP_GET) ->
   cb_context:setters(Context
                      ,[{fun cb_context:set_resp_status/2, 'success'}]);
 
@@ -676,26 +633,25 @@ validate_request(?PATH_CONFIRM, Context, ?HTTP_POST) ->
         F(ReqJson, C)
     end, Context1,  ValidateFuns);
 
-validate_request(_AccountId, Context, ?HTTP_POST) ->
+validate_request(_Id, Context, ?HTTP_POST) ->
   ReqJson = cb_context:req_json(Context),
   Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),	
 
   ValidateFuns = [ 
-                  % ,fun validate_update_phone_number/2
                    fun user_handler:validate_update_password/2
                    ,fun user_handler:validate_update_timezone/2],
   lists:foldl(fun(F, C) ->
                   F(ReqJson, C)
               end, Context1,  ValidateFuns);
 
-validate_request(_AccountId, Context, _Verb) ->
+validate_request(_Id, Context, _Verb) ->
   Context.
 
 
-%% POST api/v1/account/accountid/confirm
+%% POST api/v1/users/{id}/confirm
 -spec  validate_request(path_token(), cb_context:context(), path_token(), http_method()) -> cb_context:context().
-validate_request(_AccountId, Context, ?PATH_CONFIRM, _Verb) ->
+validate_request(_Id, Context, ?PATH_CONFIRM, _Verb) ->
   ReqJson = cb_context:req_json(Context),
   Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),	
@@ -705,8 +661,8 @@ validate_request(_AccountId, Context, ?PATH_CONFIRM, _Verb) ->
                   F(ReqJson, C)
               end, Context1,  ValidateFuns);
 
-%%%%POST api/v1/account/accountid/password_change
-validate_request(_AccountId, Context, ?PATH_PASSWORD_CHANGE, _Verb) ->
+%%%%POST api/v1/users/{id}/password_change
+validate_request(_Id, Context, ?PATH_PASSWORD_CHANGE, _Verb) ->
   ReqJson = cb_context:req_json(Context),
   Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),	
@@ -718,8 +674,7 @@ validate_request(_AccountId, Context, ?PATH_PASSWORD_CHANGE, _Verb) ->
                   F(ReqJson, C)
               end, Context1,  ValidateFuns);
 
-%% POST api/v1/account/accountid/logout
-validate_request(_AccountId, Context, ?PATH_LOGOUT, _Verb) ->
+validate_request(_Id, Context, ?PATH_LOGOUT, _Verb) ->
   Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),	
   ReqJson =  cb_context:req_json(Context1),
@@ -729,12 +684,8 @@ validate_request(_AccountId, Context, ?PATH_LOGOUT, _Verb) ->
                   F(ReqJson, C)
               end, Context1,  ValidateFuns);
 
-validate_request(_AccountId, Context, _Path, _Verb) ->
+validate_request(_Id, Context, _Path, _Verb) ->
   Context.
-
-
-get_users(QueryJson, Limit, Offset) ->
-        user_db:find_by_conditions([], [{<<"sort_created_time">>, desc}|QueryJson], Limit, Offset).
 
 get_user_info(ReqJson) ->
   Email  = wh_json:get_value(<<"email">>, ReqJson,<<>>), 
@@ -763,17 +714,6 @@ get_user_info(ReqJson) ->
       updated_time_dt => CreatedTime
       
     }.
-
-get_user_info(ReqJson, Info, UserId, TimeZone, UpdateTime) ->
-  Address = wh_json:get_value(<<"address">>, ReqJson, maps:get(address, Info, <<>>)),
-  Avatar = wh_json:get_value(<<"avatar">>, ReqJson, maps:get(avatar, Info, <<>>)), 
-  maps:merge(Info,#{
-        address => Address,
-        avatar => Avatar, 
-        time_zone => TimeZone, 
-        updated_time_dt => UpdateTime, 
-        updated_by => UserId
-  }).
 
 get_sub_fields_users(User) -> 
   Fields = [
