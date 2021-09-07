@@ -7,8 +7,64 @@
     get_color_types/0,
     get_color_codes/0,
     get_color_type/1,
-    get_high_priority_color/1
+    get_high_priority_color/1,
+    is_key_exist/1,
+    validate_type/2,
+    validate_group/2,
+    validate_value/2, 
+    validate_content_type/2
 ]).
+
+is_key_exist( Key) ->
+	case configuration_db:find_by_conditions([{key,Key}], [], 1, 0) of 
+    [ConfigurationDb] when is_map(ConfigurationDb) ->
+      true ;
+    [] ->
+      false ;
+    Error ->
+      lager:error("Configuration Can't Register. Maybe Database With This Key: ~p; Error: ~p ~n", [Key,Error]),
+      throw(dberror)
+  end.
+
+-spec validate_type(api_binary(),cb_context:context())->cb_context:cb_context().
+validate_type(ReqJson, Context) ->
+	Type = wh_json:get_value(<<"type">>,ReqJson,<<>>),
+  	case Type of
+		<<>> ->
+			  lager:debug("Required TYPE"),
+			  api_util:validate_error(Context,<<"type">>,<<"required">>,<<"Field 'type' is required">>);
+		_ -> Context
+	end.
+
+-spec validate_value(api_binary(),cb_context:context())->cb_context:cb_context().
+validate_value(ReqJson, Context) ->
+	Value = wh_json:get_value(<<"value">>,ReqJson,<<>>),
+	case Value of 
+		<<>> ->
+				lager:debug("Required Value"),
+				api_util:validate_error(Context,<<"value">>,<<"required">>,<<"Field 'value' is required">>);
+		_ -> Context
+	end.
+
+-spec validate_group(api_binary(),cb_context:context()) -> cb_context:cb_context().
+validate_group(ReqJson, Context) ->
+	Group = wh_json:get_value(<<"group">>,ReqJson,<<>>),
+	case Group of 
+		<<>> -> 
+			lager:debug("Required Group"),
+			api_util:validate_error(Context,<<"group">>,<<"required">>,<<"Field 'group' is required">>);
+		_ -> Context
+	end.
+
+-spec validate_content_type(api_binary(),cb_context:context())->cb_context:cb_context().
+validate_content_type(ReqJson, Context) ->
+	Value = wh_json:get_value(<<"content_type">>,ReqJson,<<>>),
+	case Value of 
+		<<>> ->
+				lager:debug("Required Content Type"),
+				api_util:validate_error(Context,<<"content_type">>,<<"required">>,<<"Field 'content_type' is required">>);
+		_ -> Context
+	end.
 
 get_high_priority_color(ColorTypes) when is_list(ColorTypes) -> 
     Lists = get_color_types(),

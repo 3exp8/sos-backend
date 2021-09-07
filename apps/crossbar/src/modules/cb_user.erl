@@ -139,7 +139,11 @@ authorize_verb(Context, Id, ?HTTP_GET) -> true;
 
 authorize_verb(Context, Id, ?HTTP_POST) -> % Update other role, create user
   Role = cb_context:role(Context),
-  Role == ?USER_ROLE_ADMIN.
+  Role == ?USER_ROLE_ADMIN;
+
+authorize_verb(Context, Id, ?HTTP_DELETE) -> 
+Role = cb_context:role(Context),
+Role == ?USER_ROLE_ADMIN.
 
 authorize(_Context, _Id, _Path) ->
     true.
