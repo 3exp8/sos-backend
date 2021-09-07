@@ -99,6 +99,9 @@ oauth2_authentic(Token) ->
 
 
 oauth2_authentic(Token, Context) ->
+  ReqJson =  cb_context:req_json(Context),
+  ReqVerb = cb_context:req_verb(Context),
+  lager:debug("oauth2_authentic ReqVerb: ~p ReqJson: ~p~n",[ReqVerb, ReqJson]),
   case oauth2:verify_access_token(Token, []) of
     {ok, {_, AccessTokenInfo}} ->
       lager:info("_Identity: ~p ~n",[AccessTokenInfo]),

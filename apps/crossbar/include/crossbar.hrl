@@ -91,6 +91,7 @@
 -define(USER_ROLE_USER, <<"USER">>).  %% logged in user
 -define(USER_ROLE_OPERATOR, <<"OPERATOR">>).  %% opeator user
 -define(USER_ROLE_ADMIN, <<"ADMIN">>).  %% admin user
+-define(USER_ROLES, [?USER_ROLE_USER,?USER_ROLE_OPERATOR,?USER_ROLE_ADMIN]).  %% admin user
 
 -define(CREATED_SOURCE_APP, <<"customers_app">>).
 

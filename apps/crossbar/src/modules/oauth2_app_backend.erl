@@ -62,14 +62,14 @@ authenticate_scope_user({UserId, {confirm_code, ConfirmCode}}, Ctx) ->
 		confirm_code := ConfirmCode,
 		account_id := AccountId,
 		phone_number := Username,
-		role := Role, 
-		roles := Roles
+		role := Role
+		%roles := Roles
 	}  ->
 		NewCtx = [
 			{<<"user_id">>, UserId}, 
 			{<<"account_id">>, AccountId}, 
 			{<<"role">>, Role}, 
-			{<<"roles">>, Roles}, 
+			%{<<"roles">>, Roles}, 
 			{<<"device_info">>, DeviceInfo}
 		],
 		lager:info("auth_token: NewCtx ~p ~n", [NewCtx]),
@@ -230,20 +230,35 @@ resolve_access_token(AccessToken, Ctx) ->
 	%% returned from this function according to the spec.
 	%case db:find_by_token(AccessToken) of
 	case access_token_mnesia_db:find_by_token(AccessToken) of
-	#{context := Context, user_id := UserId, account_id := AccountId, roles := Roles} -> 
+	#{
+		context := Context, 
+		user_id := UserId, 
+		account_id := AccountId,
+		role := RoleDb,
+		roles := Roles
+	} = TokenInfo -> 
 		ListContext= 
 		lists:map(fun({expiry_time =K, V}) -> {to_binary(K), to_integer(V)} ;
 					 ({K, V}) -> {to_binary(K), V}
 		end, maps:to_list(Context)), 
 		lager:debug("order_authorize  resolve_access_token Context: ~p~n",[Context]),
 		Scope = maps:get(<<"scope">>, Context, <<>>),
+		lager:debug("order_authorize  resolve_access_token TokenInfo: ~p~n",[TokenInfo]),
 		Role = 
-		case Scope of 
-			<<"CUSTOMER">> -> ?USER_ROLE_CUSTOMER;
-			_ -> <<>>
-		end,
+			case RoleDb of 
+				<<>> -> 
+					case Scope of 
+						<<"CUSTOMER">> -> ?USER_ROLE_CUSTOMER;
+						_ -> <<>>
+					end;
+				_ -> RoleDb
+			end,
 
-		Resp = [{<<"user_id">>, UserId},{<<"account_id">>, AccountId}, {<<"role">>, Role}, {<<"roles">>, Roles} | ListContext],
+		Resp = [
+			{<<"user_id">>, UserId},
+			%{<<"account_id">>, AccountId}, 
+			{<<"role">>, Role}, 
+			{<<"roles">>, Roles} | ListContext],
 		lager:debug("order_authorize resolve_access_token Resp: ~p~n",[Resp]),
 		{ok, {Ctx, Resp}};
 	_ -> {error, notfound}

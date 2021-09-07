@@ -10,6 +10,7 @@
     , handle_user_resend/2
     , send_otp/2
     , create_confirm_code_by_phone/1
+    ,validate_role/2
     , validate_phone_number/2
     , validate_password/2
     , validate_confirm_phone_number/2
@@ -135,11 +136,11 @@ handle_user_resend(Context,
     phone_number := PhoneNumberDb
   } = UserDbInfo
 )  -> 
-      case user_actor:check_otp_rule(PhoneNumberDb) of 
+      case user_actor:start_actor(PhoneNumberDb) of 
       true -> 
           ReqJson =  cb_context:req_json(Context),
           
-          IsDebug = wh_json:get_value(<<"debug">>, ReqJson, <<"true">>),
+          IsDebug = wh_json:get_value(<<"debug">>, ReqJson, <<"false">>),
 
           ConfirmCode = create_confirm_code_by_phone(PhoneNumberDb),
           NewUserInfo = maps:merge(UserDbInfo, #{
@@ -189,7 +190,9 @@ handle_user_resend(Context, _) ->
     ]).
 
 send_otp(PhoneNumber, ConfirmCode) when is_binary(ConfirmCode)->
-    tel4vn_voice_otp:call(PhoneNumber, ConfirmCode);
+  spawn(fun() -> 
+    tel4vn_voice_otp:call(PhoneNumber, ConfirmCode)
+  end);
 
 send_otp(PhoneNumber, ConfirmCode) ->
     send_otp(PhoneNumber, zt_util:to_bin(ConfirmCode)).
@@ -234,6 +237,26 @@ validate_phone_number(ReqJson, Context) ->
           end
       end
   end. 
+
+-spec validate_role(api_binary(), cb_context:context()) -> cb_context:context().
+validate_role(ReqJson, Context) ->
+  Key = <<"role">>,
+  Val = wh_json:get_value(Key, ReqJson, <<>>),
+  case api_util:check_val(Context, Key, Val) of 
+    Context ->
+      validate_role_value(Key,Val,Context);
+    ErrorContext ->
+      ErrorContext
+  end.
+
+-spec validate_role_value(binary(), binary(), cb_context:context()) -> cb_context:context().
+validate_role_value(Key, Val, Context) ->
+    case lists:member(Val, ?USER_ROLES) of
+        true -> Context;
+        _ ->
+            Vals = zt_util:arr_to_str(?USER_ROLES),
+            api_util:validate_error(Context, Key, <<"invalid">>, <<"Invalid ",Key/binary,". Value must be ",Vals/binary>>)
+    end.
 
 -spec validate_password(api_binary(), cb_context:context()) -> cb_context:context().
 validate_password(ReqJson, Context) ->

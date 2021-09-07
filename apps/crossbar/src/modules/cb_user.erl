@@ -100,7 +100,9 @@ authenticate(_Context, ?PATH_CONFIRM) -> true;
 authenticate(_Context, ?PATH_RESEND) -> true;
 authenticate(Context, _Path) ->
   Token = cb_context:auth_token(Context),
-  app_util:oauth2_authentic(Token, Context).
+  Res = app_util:oauth2_authentic(Token, Context),
+lager:debug("authenticate: ~p~n",[Res]),
+  Res.
 
 %% /api/v1/account/accountid/path
 -spec authenticate(cb_context:context(), path_token(), path_token()) -> boolean().
@@ -122,8 +124,10 @@ authenticate(_Context, _AccountId, _Path) -> false.
 authorize(Context) ->
   authorize_util:authorize(?MODULE, Context).
 
-authorize(Context, ?PATH_CREATE = _Path) ->
-    authorize_util:authorize(?MODULE, Context, {permission, ?PERMISSION_CREATE_USER}); 
+authorize(Context, ?PATH_CREATE = Path) ->
+    Role = cb_context:role(Context),
+    lager:debug("create user Role: ~p~n",[Role]),
+    Role == ?USER_ROLE_ADMIN;
 
 authorize(_Context, ?PATH_PROFILE = _Path) -> true;
 
@@ -192,7 +196,7 @@ handle_get({Req, Context}) ->
   PropQueryJson = wh_json:to_proplist(QueryJson),
   Users = user_db:find_by_conditions([{account_id, AccountId}], PropQueryJson, Limit, Offset),
   PropUsers = lists:map(fun(Account) ->
-          get_sub_fields_accounts(Account) end, 
+          get_sub_fields_users(Account) end, 
       Users),
   {Req, cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_data/2, PropUsers}
@@ -204,16 +208,18 @@ handle_get({Req, Context}, ?PATH_PROFILE) ->
   lager:debug("UserId: ~p~n",[UserId]),
   case user_db:find(UserId) of 
     #{} = UserInfo ->   
-    PropUserInfo = get_sub_fields_accounts(UserInfo),
+    PropUserInfo = get_sub_fields_users(UserInfo),
     {Req, cb_context:setters(Context
-                                   ,[{fun cb_context:set_resp_data/2, PropUserInfo}
-                                     ,{fun cb_context:set_resp_status/2, 'success'}
-                                    ])};
+                    ,[{fun cb_context:set_resp_data/2, PropUserInfo}
+                    ,{fun cb_context:set_resp_status/2, 'success'}
+           ])};
     _ ->
       Context2 = api_util:validate_error(Context, <<"user">>, <<"not_found">>, <<"user_notfound">>), 
-      {Req, cb_context:setters(Context2, [{fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
-                                {fun cb_context:set_resp_status/2, <<"error">>},
-                                {fun cb_context:set_resp_error_code/2, 404}])}
+      {Req, cb_context:setters(Context2, [
+                  {fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
+                  {fun cb_context:set_resp_status/2, <<"error">>},
+                  {fun cb_context:set_resp_error_code/2, 404}
+      ])}
   end;
 
 handle_get({Req, Context}, Id) ->
@@ -226,7 +232,7 @@ handle_get({Req, Context}, Id) ->
       if 
         Role == ?USER_ROLE_ADMIN; 
         Role == ?USER_ROLE_USER andalso AccountIdDb == AccountId ->
-          PropAccount = get_sub_fields_accounts(AccountInfo),
+          PropAccount = get_sub_fields_users(AccountInfo),
           {Req, cb_context:setters(Context
                                    ,[{fun cb_context:set_resp_data/2, PropAccount}
                                      ,{fun cb_context:set_resp_status/2, 'success'}
@@ -270,7 +276,8 @@ handle_put(Context) ->
                             id => UserId,
                             first_name => FirstName, 
                             last_name => LastName,
-                            status => ?USER_STATUS_UNCONFIRMED, 
+                            status => ?USER_STATUS_UNCONFIRMED,
+                            role => ?USER_ROLE_USER,
                             created_by => LoginedUserId,	
                             updated_by => LoginedUserId,
                             confirm_code => ConfirmCode,
@@ -300,8 +307,58 @@ handle_put(Context) ->
                         ,[{fun cb_context:set_resp_data/2, RespData}
                         ,{fun cb_context:set_resp_status/2, 'success'}]).
 
-%% PUT api/v1/account/accountid
+%% PUT api/v1/users/id
 -spec handle_put(cb_context:context(), path_token()) -> cb_context:context().
+handle_put(Context, ?PATH_CREATE) ->
+  ReqJson = cb_context:req_json(Context),
+  IsDebug =  wh_json:get_value(<<"debug">>, ReqJson),
+  PhoneNumber  = wh_json:get_value(<<"phone_number">>, ReqJson),
+  FirstName = wh_json:get_value(<<"first_name">>, ReqJson, <<>>),
+  LastName = wh_json:get_value(<<"last_name">>, ReqJson, <<>>),
+  Role = wh_json:get_value(<<"role">>, ReqJson, ?USER_ROLE_USER),
+  
+  Uuid = zt_util:get_uuid(),
+  ConfirmCode = zt_util:create_random_number(),
+  UserInfo = get_user_info(ReqJson),
+  UserId = <<"user", Uuid/binary>>,
+  UserBaseInfo = 
+    case user_handler:find_unconfirmed_user(PhoneNumber) of 
+      notfound -> 
+          maps:merge(UserInfo, #{
+                id => UserId,
+                first_name => FirstName, 
+                last_name => LastName,
+                status => ?USER_STATUS_UNCONFIRMED,
+                role => Role,
+                created_by => cb_context:user_id(Context),  
+                updated_by => cb_context:user_id(Context),
+                confirm_code => ConfirmCode,
+                confirm_code_created_time_dt => zt_datetime:get_now()
+          });
+      Info -> Info
+    end,
+    UserDb = 
+        maps:merge(UserBaseInfo,#{
+            confirm_code_created_time_dt => zt_datetime:get_now(),
+            confirm_code => ConfirmCode
+        }),
+  user_db:save(UserDb),
+  InitRespData = maps:with([id,phone_number],UserDb),
+  RespData = 
+      case IsDebug of
+        <<"true">> -> 
+            maps:merge(InitRespData, #{
+                confirm_code => ConfirmCode
+            });
+        _ ->
+            user_handler:send_otp(PhoneNumber,ConfirmCode),
+            InitRespData
+      end,
+
+  cb_context:setters(Context
+                          ,[{fun cb_context:set_resp_data/2, RespData}
+                            ,{fun cb_context:set_resp_status/2, 'success'}]);
+
 handle_put(Context, _AccountId) ->
   ?MODULE:handle_put(Context).
 
@@ -347,7 +404,7 @@ handle_post(Context, ?PATH_PROFILE) ->
                         updated_by => UserId
                       }),
           user_db:save(NewUserInfo),
-          RespData = get_sub_fields_accounts(NewUserInfo),
+          RespData = get_sub_fields_users(NewUserInfo),
           cb_context:setters(Context, [{fun cb_context:set_resp_data/2, RespData}
                                        ,{fun cb_context:set_resp_status/2, 'success'}]);
     _ ->
@@ -394,7 +451,7 @@ handle_post(Context, Id) ->
           spawn(fun() -> 
             maybe_update_role_token(IsChangedRoles, Id, RolesMapList)
           end),
-          RespData = get_sub_fields_accounts(NewUserDb),
+          RespData = get_sub_fields_users(NewUserDb),
           cb_context:setters(Context, [{fun cb_context:set_resp_data/2, RespData}
                                        ,{fun cb_context:set_resp_status/2, 'success'}]);
     _ ->
@@ -530,8 +587,8 @@ validate_request(Context, ?HTTP_PUT) ->
   ValidateFuns = [
     %fun validate_email/2
                  fun user_handler:validate_phone_number/2
-                  ,fun user_handler:validate_password/2
-                 ],
+                ,fun user_handler:validate_password/2
+              ],
   lists:foldl(fun(F, C) ->
                   F(ReqJson, C)
               end, Context1,  ValidateFuns);
@@ -550,6 +607,20 @@ validate_request(_AccountId, Context, ?HTTP_GET) ->
   cb_context:setters(Context
                      ,[{fun cb_context:set_resp_status/2, 'success'}]);
 
+validate_request(?PATH_CREATE, Context, ?HTTP_PUT) ->
+    ReqJson = cb_context:req_json(Context),
+    Context1 = cb_context:setters(Context
+          ,[{fun cb_context:set_resp_status/2, 'success'}]),	
+                              
+    ValidateFuns = [ 
+      fun user_handler:validate_phone_number/2
+     ,fun user_handler:validate_role/2
+     ,fun user_handler:validate_password/2
+    ],
+                  
+  lists:foldl(fun(F, C) ->
+        F(ReqJson, C)
+  end, Context1,  ValidateFuns);
 
 validate_request(?PATH_CONFIRM, Context, ?HTTP_POST) ->
     ReqJson = cb_context:req_json(Context),
@@ -647,7 +718,7 @@ get_user_info(ReqJson) ->
   Role = wh_json:get_value(<<"role">>, ReqJson, ?USER_ROLE_USER),
   Avatar = wh_json:get_value(<<"avatar">>, ReqJson, <<>>),
   TimeZone = wh_json:get_value(<<"time_zone">>, ReqJson, <<>>),
-  Password = wh_json:get_value(<<"password">>, ReqJson),
+  Password = wh_json:get_value(<<"password">>, ReqJson,zt_util:get_uuid()),
   {ok, Salt} = bcrypt:gen_salt(?WORKFACTOR),
   {ok, HashPass} = bcrypt:hashpw(Password, Salt),
   CreatedTime = zt_datetime:get_now(),
@@ -666,23 +737,33 @@ get_user_info(ReqJson) ->
       
     }.
 
-get_user_info(ReqJson, Account, UserId, TimeZone, UpdateTime) ->
-  PhoneNumber = wh_json:get_value(<<"phone_number">>, ReqJson, maps:get(phone_number, Account, <<>>)),
-  Address = wh_json:get_value(<<"address">>, ReqJson, maps:get(address, Account, <<>>)),
-  Role = wh_json:get_value(<<"role">>, ReqJson, maps:get(role, Account, <<>>)),
-  Avatar = wh_json:get_value(<<"avatar">>, ReqJson, maps:get(avatar, Account, <<>>)), 
-  maps:merge(Account, #{phone_number => PhoneNumber, 
-                        address => Address,
-                        role => Role, 
-                        avatar => Avatar, 
-                        time_zone => TimeZone, 
-                        updated_time_dt => UpdateTime, 
-                        updated_by => UserId
-                      }).
+get_user_info(ReqJson, Info, UserId, TimeZone, UpdateTime) ->
+  PhoneNumber = wh_json:get_value(<<"phone_number">>, ReqJson, maps:get(phone_number, Info, <<>>)),
+  Address = wh_json:get_value(<<"address">>, ReqJson, maps:get(address, Info, <<>>)),
+  Role = wh_json:get_value(<<"role">>, ReqJson, maps:get(role, Info, <<>>)),
+  Avatar = wh_json:get_value(<<"avatar">>, ReqJson, maps:get(avatar, Info, <<>>)), 
+  maps:merge(Info,#{
+        phone_number => PhoneNumber, 
+        address => Address,
+        role => Role, 
+        avatar => Avatar, 
+        time_zone => TimeZone, 
+        updated_time_dt => UpdateTime, 
+        updated_by => UserId
+  }).
 
-get_sub_fields_accounts(User) -> 
-  Fields = [roles,account_id, password, created_by, created_time_dt, updated_by, updated_time_dt,
-            confirm_code, confirm_code_created_time_dt] ,
+get_sub_fields_users(User) -> 
+  Fields = [
+      roles,
+      account_id,
+      password, 
+      created_by,
+      created_time_dt,
+      updated_by,
+      updated_time_dt,
+      confirm_code, 
+      confirm_code_created_time_dt
+  ] ,
   NewMap = maps:without(Fields, User),
   Res = maps:to_list(NewMap),
   proplists:substitute_aliases([], Res).
