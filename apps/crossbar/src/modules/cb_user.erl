@@ -4,6 +4,7 @@
 
 -define(PATH_CREATE, <<"create">>).
 -define(PATH_RESEND, <<"resend">>).
+-define(PATH_SEARCH, <<"search">>).
 
 -define(PATH_PROFILE, <<"profile">>).
 -define(PERMISSION_CREATE_USER, <<"create_staff">>).
@@ -62,7 +63,7 @@ allowed_methods(_Path) ->
 
 %% /api/v1/users/{id}/path
 allowed_methods(_Id, _Path) ->
-  [?HTTP_POST].
+  [?HTTP_POST, ?HTTP_GET].
 
 
 -spec resource_exists() -> 'true'.
@@ -81,6 +82,7 @@ resource_exists(_Path) -> 'true'.
 resource_exists(_Id, ?PATH_CONFIRM) -> 'true';
 resource_exists(_Id, ?PATH_PASSWORD_CHANGE) -> 'true';
 resource_exists(_Id, ?PATH_LOGOUT) -> 'true';
+
 resource_exists(_Id, _Path) -> 'false'.
 
 %% /api/v1/users
@@ -131,6 +133,7 @@ authorize_verb(Context, ?HTTP_GET) -> %Admin and opeator have permission to get 
 authorize(_Context, ?PATH_PROFILE = _Path) -> true;
 authorize(_Context, ?PATH_RESEND = _Path) -> true;
 authorize(_Context, ?PATH_CONFIRM = _Path) -> true;
+authorize(_Context, ?PATH_SEARCH = _Path) -> true;
 
 authorize(Context, ?PATH_CREATE = Path) ->
   authorize_verb(Context, Path, cb_context:req_verb(Context)).
@@ -495,6 +498,25 @@ handle_post(Context, ?PATH_PASSWORD_CHANGE) ->
 
   end;
 
+handle_post(Context, ?PATH_SEARCH) ->  
+ReqJson =  cb_context:req_json(Context),
+PhoneNumber  = wh_json:get_value(<<"phone_number">>, ReqJson), 
+case user_db:find_by_phone_number(PhoneNumber) of 
+[UserInfo] -> 
+    RespData  = maps:with([id,first_name,last_name, phone_number,address,avatar],UserInfo),
+    cb_context:setters(Context,[
+      {fun cb_context:set_resp_data/2, RespData}
+      ,{fun cb_context:set_resp_status/2, 'success'}
+    ]);
+ _ -> 
+    Context2 = api_util:validate_error(Context, <<"phone_number">>, <<"not_found">>, <<"phone_number_notfound">>), 
+    cb_context:setters(Context2,
+                                [{fun cb_context:set_resp_error_msg/2, <<"Phone Number Notfound">>},
+                                {fun cb_context:set_resp_status/2, <<"error">>},
+                                {fun cb_context:set_resp_error_code/2, 404}
+                                ]) 
+end;
+
 handle_post(Context, ?PATH_LOGOUT) ->
   UserId = cb_context:user_id(Context),
   Role = cb_context:role(Context),
@@ -631,6 +653,19 @@ validate_request(?PATH_CONFIRM, Context, ?HTTP_POST) ->
             
     ValidateFuns = [ 
       fun user_handler:validate_confirm_phone_number/2
+    ],
+
+    lists:foldl(fun(F, C) ->
+        F(ReqJson, C)
+    end, Context1,  ValidateFuns);
+
+  validate_request(?PATH_SEARCH, Context, ?HTTP_POST) ->
+    ReqJson = cb_context:req_json(Context),
+    Context1 = cb_context:setters(Context
+                    ,[{fun cb_context:set_resp_status/2, 'success'}]),	
+            
+    ValidateFuns = [ 
+      fun user_handler:validate_search_phone_number/2
     ],
 
     lists:foldl(fun(F, C) ->

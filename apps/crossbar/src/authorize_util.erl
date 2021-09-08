@@ -3,6 +3,7 @@
 -include("crossbar.hrl").
 
 -export([
+        check_role/2,
          authorize/2,
          authorize/3,
          authorize_permission/3,
@@ -50,6 +51,22 @@
     {?RES_PERMISSION_GET_DETAIL, <<"get detail permission">>}
   ]).
 
+-spec check_role(binary(),binary()|[binary()]) -> true|false.
+check_role(Role, Role) ->  true;
+
+check_role(Role, ?USER_ROLE_USER_GE) ->  
+  check_role(Role, [?USER_ROLE_USER, ?USER_ROLE_OPERATOR, ?USER_ROLE_ADMIN]);
+
+check_role(Role, ?USER_ROLE_OPERATOR_GE) ->  
+  check_role(Role, [?USER_ROLE_OPERATOR, ?USER_ROLE_ADMIN]);
+
+check_role(_, ?USER_ROLE_ANY) ->  true;
+
+check_role(Role, ListRoles) when is_list(ListRoles) -> 
+  lists:member(Role, ListRoles);
+
+check_role(_, _) -> false.
+ 
 authorize(Module, Context) ->
     lager:debug("authorize mod: ~p~n",[Module]),
     Verb = cb_context:req_verb(Context),

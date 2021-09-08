@@ -14,6 +14,7 @@
     , create_confirm_code_by_phone/1
     ,validate_role/2
     , validate_phone_number/2
+    , validate_search_phone_number/2
     , validate_password/2
     , validate_confirm_phone_number/2
     , validate_confirm_code/2
@@ -241,7 +242,13 @@ validate_confirm_phone_number(ReqJson, Context) ->
       api_util:validate_error(Context, <<"phone_number">>, <<"required">>, <<"phone_number_required">>);
     _ ->
       Context
-  end. 
+  end.
+
+-spec validate_search_phone_number(api_binary(), cb_context:context()) -> cb_context:context().
+validate_search_phone_number(ReqJson, Context) ->
+  Key = <<"phone_number">>,
+  Val = wh_json:get_value(Key, ReqJson, <<>>),
+  api_util:check_val(Context, Key, Val).
 
 -spec validate_phone_number(api_binary(), cb_context:context()) -> cb_context:context().
 validate_phone_number(ReqJson, Context) ->
