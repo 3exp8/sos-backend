@@ -12,6 +12,7 @@
 -define(REMINDER_ACCESS_TOKEN_API, "/api/v1/users/generate_access_token").
 -define(REMINDER_CALL_START_API, "/api/v2/campaigns/").
 -define(REMINDER_CALL_END_API, "/otp").
+-define(TOKEN_KEY, sostokenkey).
 
 
 start_conn(Host, Port)->
@@ -31,7 +32,7 @@ stop_conn(Conn)->
 
 call(To, CallInfo) ->
 	Conn = start_conn(?Protocol, ?Host, ?Port),
-	Token = get_reminder_token(),
+	Token = get_tel4vn_token(),
 	{ok, Resp} = call(Conn, Token, To, CallInfo),
 	lager:info("AutoCall Response: ~p ~n", [Resp]),
 	stop_conn(Conn).
@@ -59,6 +60,17 @@ get_reminder_token() ->
 buildPath() ->
 	Path = ?REMINDER_CALL_START_API ++ binary_to_list(?CampaignId) ++ ?REMINDER_CALL_END_API,
 	Path.
+
+get_tel4vn_token() ->
+	sos_cache:init(),
+	case sos_cache:get(?TOKEN_KEY) of
+		{ok, Token} ->
+			Token;
+		{error, not_found} ->
+			Token = get_reminder_token(),
+			sos_cache:set(?TOKEN_KEY, Token),
+			Token
+	end.
 
 get_call_access_token_request(SecretKey) ->
 	Header = 	[
