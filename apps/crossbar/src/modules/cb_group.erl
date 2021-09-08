@@ -21,7 +21,8 @@
 
 -export([
     handle_get/1, 
-    handle_get/2, 
+    handle_get/2,
+    handle_get/3,
     handle_put/1, 
     handle_post/2,
     handle_post/3, 
@@ -49,6 +50,9 @@ init() ->
 -define(PATH_VERIFY, <<"verify">>).
 -define(PATH_MEMBER, <<"members">>).
 -define(PATH_TYPE, <<"types">>).
+-define(PATH_SUGGEST, <<"suggest">>).
+-define(PATH_BOOKMARK, <<"bookmark">>).
+
 
 allowed_methods() -> [?HTTP_GET, ?HTTP_PUT].
 
@@ -57,7 +61,10 @@ allowed_methods(_Id) -> [?HTTP_GET, ?HTTP_POST, ?HTTP_DELETE].
 allowed_methods(_Id,?PATH_VERIFY) -> [?HTTP_POST];
 
 allowed_methods(_Id,?PATH_MEMBER) ->
-    [?HTTP_POST, ?HTTP_DELETE].
+    [?HTTP_POST, ?HTTP_DELETE];
+
+allowed_methods(_Id,?PATH_SUGGEST) -> [?HTTP_GET];
+allowed_methods(_Id,?PATH_BOOKMARK) -> [?HTTP_GET].
 
 -spec resource_exists() -> true.
 resource_exists() -> true.
@@ -66,6 +73,8 @@ resource_exists() -> true.
 resource_exists(_Id) -> true.
 
 -spec resource_exists(path_token(),path_token()) -> true.
+resource_exists(_Id,?PATH_BOOKMARK) ->true;
+resource_exists(_Id,?PATH_SUGGEST) ->true;
 resource_exists(_Id,?PATH_VERIFY) ->true;
 resource_exists(_Id,?PATH_MEMBER) ->true.
 
@@ -112,6 +121,14 @@ authorize(Context, _Id, ?PATH_VERIFY) ->
     Role = cb_context:role(Context),
     Role == ?USER_ROLE_USER;
 
+authorize(Context, _Id, ?PATH_BOOKMARK) ->
+    Role = cb_context:role(Context),
+    Role == ?USER_ROLE_USER;
+
+authorize(Context, _Id, ?PATH_SUGGEST) ->
+    Role = cb_context:role(Context),
+    Role == ?USER_ROLE_USER;
+
 authorize(_Context, _Id, ?PATH_MEMBER) -> true.
 
 -spec validate(cb_context:context()) -> cb_context:context().
@@ -122,6 +139,7 @@ validate(Context) ->
 validate(Context, Id) ->
     validate_request(Id, Context, cb_context:req_verb(Context)).
 
+-spec validate(cb_context:context(), path_token(), path_token()) -> cb_context:context().
 validate(Context, Id, Path) ->
     validate_request(Id, Path, Context, cb_context:req_verb(Context)).
 
@@ -161,6 +179,56 @@ handle_get({Req, Context}, Id) ->
           {Req,
            cb_context:setters(Context,
                               [{fun cb_context:set_resp_data/2, PropGroup},
+                               {fun cb_context:set_resp_status/2, success}])};
+      _ ->
+          {Req,
+           cb_context:setters(Context,
+                              [{fun cb_context:set_resp_error_msg/2, <<"Group not found">>},
+                               {fun cb_context:set_resp_status/2, <<"error">>},
+                               {fun cb_context:set_resp_error_code/2, 404}])}
+    end.
+
+% sos_request_db:find_by_conditions([{<<"suggest_info.target_type">>,<<"group">>},{<<"suggest_info.target_id">>,<<"group372dfa628f08303797acb05751ddfc9a">>}], [], 5, 0).
+% sos_request_db:find_by_conditions([{<<"bookmarks#bookmarker_type">>,<<"group">>},{<<"bookmarks#bookmarker_id">>,<<"group372dfa628f08303797acb05751ddfc9a">>}], [], 5, 0).
+handle_get({Req, Context}, Id, ?PATH_BOOKMARK) ->
+    case group_db:find(Id) of
+      #{} = Info ->
+            QueryJson = cb_context:query_string(Context),
+            Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
+            Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
+            PropQueryJson = wh_json:to_proplist(QueryJson),
+            SosRequests = 
+                sos_request_db:find_by_conditions([
+                    {<<"bookmarks.bookmarker_type">>,?OBJECT_TYPE_GROUP},
+                    {<<"bookmarks.bookmarker_id">>,Id}
+                ], PropQueryJson, Limit, Offset),
+          {Req,
+           cb_context:setters(Context,
+                              [{fun cb_context:set_resp_data/2, SosRequests},
+                               {fun cb_context:set_resp_status/2, success}])};
+      _ ->
+          {Req,
+           cb_context:setters(Context,
+                              [{fun cb_context:set_resp_error_msg/2, <<"Group not found">>},
+                               {fun cb_context:set_resp_status/2, <<"error">>},
+                               {fun cb_context:set_resp_error_code/2, 404}])}
+    end;
+
+handle_get({Req, Context}, Id, ?PATH_SUGGEST) ->
+    case group_db:find(Id) of
+      #{} = Info ->
+            QueryJson = cb_context:query_string(Context),
+            Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
+            Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
+            PropQueryJson = wh_json:to_proplist(QueryJson),
+            SosRequests = 
+                sos_request_db:find_by_conditions([
+                    {<<"suggest_info.target_type">>,?OBJECT_TYPE_GROUP},
+                    {<<"suggest_info.target_id">>,Id}
+                ], PropQueryJson, Limit, Offset),
+          {Req,
+           cb_context:setters(Context,
+                              [{fun cb_context:set_resp_data/2, SosRequests},
                                {fun cb_context:set_resp_status/2, success}])};
       _ ->
           {Req,
@@ -352,6 +420,7 @@ handle_delete(Context, Id, ?PATH_MEMBER) ->
                              ])            
     end.
 -spec handle_delete(cb_context:context(), path_token()) -> cb_context:context().
+
 handle_delete(Context, Id) ->
     case group_db:find(Id) of 
         notfound -> 
@@ -376,8 +445,6 @@ permissions() ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%  INTERNAL FUNCTIONS  %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%
-
-
 
 get_info(ReqJson,UserId) -> 
     Type = zt_util:normalize_string(wh_json:get_value(<<"type">>, ReqJson)),
@@ -446,6 +513,12 @@ validate_request(_Id, ?PATH_VERIFY, Context, ?HTTP_POST) ->
                 ValidateFuns);
 
 validate_request(_Id, ?PATH_MEMBER, Context, _) ->
+    cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
+
+validate_request(_Id, ?PATH_SUGGEST, Context, _) ->
+    cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
+
+validate_request(_Id, ?PATH_BOOKMARK, Context, _) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
 
 validate_request(_Id, _Path, Context, _Verb) ->

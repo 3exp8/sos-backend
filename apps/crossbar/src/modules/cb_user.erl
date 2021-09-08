@@ -273,7 +273,8 @@ handle_put(Context) ->
                             status => ?USER_STATUS_UNCONFIRMED, 
                             created_by => LoginedUserId,	
                             updated_by => LoginedUserId,
-                            confirm_code => ConfirmCode
+                            confirm_code => ConfirmCode,
+                            confirm_code_created_time_dt => zt_datetime:get_now()
           });
       Info -> 
         maps:merge(Info, 

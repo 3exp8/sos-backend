@@ -86,10 +86,19 @@
 -define(DEFAULT_OFFSET, 0).
 -define(IS_COUNT, <<"false">>).
 %% user roles
--define(USER_ROLE_CUSTOMER, <<"CUSTOMER">>).  %% customers of a restaurant
--define(USER_ROLE_USER, <<"USER">>).  %% admin of a restaurant
--define(USER_ROLE_ADMIN, <<"ADMIN">>).  %% admin of a system
+-define(USER_ROLE_CUSTOMER, <<"CUSTOMER">>).  %% unused
+-define(USER_ROLE_GUEST, <<"GUEST">>).  %% not loggined user
+-define(USER_ROLE_USER, <<"USER">>).  %% logged in user
+-define(USER_ROLE_OPERATOR, <<"OPERATOR">>).  %% opeator user
+-define(USER_ROLE_ADMIN, <<"ADMIN">>).  %% admin user
+
 -define(CREATED_SOURCE_APP, <<"customers_app">>).
+
+-define(OBJECT_TYPE_GUEST,<<"guest">>).
+-define(OBJECT_TYPE_USER,<<"user">>).
+-define(OBJECT_TYPE_GROUP,<<"group">>).
+-define(SUGGEST_TARGET_TYPES,[?OBJECT_TYPE_USER, ?OBJECT_TYPE_GROUP]).
+
 
 -define(REQUESTER_TYPE_GUEST,<<"guest">>).
 -define(REQUESTER_TYPE_USER,<<"user">>).
