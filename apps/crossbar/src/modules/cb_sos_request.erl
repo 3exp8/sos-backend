@@ -134,6 +134,7 @@ authorize(Context) ->
 
 authorize_verb(Context, ?HTTP_GET) ->
     authorize_util:authorize(?MODULE, Context);
+
 authorize_verb(_Context, ?HTTP_PUT) ->
     true.
 %authorize_util:authorize(?MODULE, Context).
@@ -143,15 +144,18 @@ authorize(Context, Path) ->
     authorize_verb(Context, Path, cb_context:req_verb(Context)).
 
 authorize_verb(Context, Path, ?HTTP_GET) ->
-    authorize_util:authorize(?MODULE, Context, Path);
+    Role = cb_context:role(Context),
+    authorize_util:check_role(Role,?USER_ROLE_OPERATOR_GE);
 
 authorize_verb(_Context, ?PATH_SEARCH, ?HTTP_POST) -> true;
 
 authorize_verb(Context, Path, ?HTTP_POST) ->
-    authorize_util:authorize(?MODULE, Context, Path);
+    Role = cb_context:role(Context),
+    authorize_util:check_role(Role,?USER_ROLE_USER_GE);
 
 authorize_verb(Context, Path, ?HTTP_DELETE) ->
-    authorize_util:authorize(?MODULE, Context, Path).
+    Role = cb_context:role(Context),
+    authorize_util:check_role(Role,?USER_ROLE_USER_GE).
 
 -spec authorize(cb_context:context(), path_token(), path_token()) -> boolean().
 authorize(Context, Id, Path) ->
@@ -170,7 +174,7 @@ authorize_verb(Context, _Id, ?PATH_BOOKMARK, ?HTTP_POST) ->
 
 authorize_verb(Context, _Id, ?PATH_STATUS, ?HTTP_POST) -> 
     Role = cb_context:role(Context),
-    authorize_util:check_role(Role, ?USER_ROLE_USER_GE); %TODO role operator, admin
+    authorize_util:check_role(Role, ?USER_ROLE_USER_GE); 
 
 authorize_verb(_Context, _Id, _Path, _) -> false.
 
@@ -297,75 +301,23 @@ handle_post(Context, ?PATH_SEARCH) ->
     end;
 
 handle_post(Context, Id) ->
-    ReqJson = cb_context:req_json(Context),
-    
+
     case sos_request_db:find(Id) of
-        #{
-            support_types := SupportTypesDb,
-            address_info := AddressInfoDb,
-            contact_info := ContactInfoDb,
-            color_info := ColorInfoDb,
-            share_phone_number := SharePhoneNumberDb,
-            medias := MediasDb,
-            request_object_status := ObjectStatusDb,
-            description := DescriptionDb,
-            location := LocationDb
-        } = RequestInfo ->
-
-            %Doc = get_doc(ReqJson, RequesterId, Db),
-            Description = wh_json:get_value(<<"description">>, ReqJson, DescriptionDb),
-            NewSupportTypes = 
-                case wh_json:get_value(<<"support_types">>, ReqJson, <<>>) of 
-                        <<>> -> SupportTypesDb;
-                        SupportTypeReq -> 
-                            zt_util:to_map_list(SupportTypeReq)
-                end,
-            Location = wh_json:get_value(<<"location">>, ReqJson, LocationDb),
-            AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson, AddressInfoDb)),
-            
-            NewContactInfo = 
-                case wh_json:get_value(<<"contact_info">>, ReqJson, <<>>) of
-                    <<>> ->  ContactInfoDb;
-                    ContactInfoProps -> zt_util:to_map(ContactInfoProps)
-                end,
-            NewSharePhoneNumber = wh_json:get_value(<<"share_phone_number">>, ReqJson, SharePhoneNumberDb) ,
-
-            NewMedias = 
-                case wh_json:get_value(<<"medias">>, ReqJson, []) of
-                    [] ->  MediasDb;
-                    MediaProps -> zt_util:to_map_list(MediaProps)
-                end,
-
-            NewObjectStatus = 
-                case wh_json:get_value(<<"requester_object_status">>, ReqJson, []) of
-                    [] ->  ObjectStatusDb;
-                    ObjectStatusProps -> zt_util:to_map_list(ObjectStatusProps)
-                end,
-
-            NewColorInfo = 
-                case NewSupportTypes of
-                    SupportTypesDb ->  ColorInfoDb;
-                    _ ->   sos_request_handler:calculate_color_type(NewSupportTypes)
-                end,
-
-            UpdatedTime = zt_datetime:get_now(),
-            NewInfo =  maps:merge(RequestInfo,#{
-                            description => Description,
-                            support_types => NewSupportTypes,
-                            color_info => NewColorInfo,
-                            location => Location,
-                            address_info => AddressInfo,
-                            contact_info => NewContactInfo,
-                            share_phone_number => NewSharePhoneNumber,
-                            medias => NewMedias,
-                            request_object_status => NewObjectStatus,
-                            updated_by => app_util:get_requester_id(Context),
-                            updated_time => UpdatedTime
-            }),
-            sos_request_db:save(NewInfo),
-            cb_context:setters(Context,
-                               [{fun cb_context:set_resp_data/2, NewInfo},
-                                {fun cb_context:set_resp_status/2, success}]);
+        RequestInfo when is_map(RequestInfo)->
+            Role = cb_context:role(Context),
+            UserId = cb_context:user_id(Context),
+            case sos_request_handler:is_owner_or_admin(Role,UserId,RequestInfo) of 
+                true -> 
+                    NewInfo = sos_request_handler:maybe_update_request_info(Context, RequestInfo),
+                    cb_context:setters(Context,
+                                    [{fun cb_context:set_resp_data/2, NewInfo},
+                                        {fun cb_context:set_resp_status/2, success}]);
+                false -> 
+                    cb_context:setters(Context,
+                    [{fun cb_context:set_resp_error_msg/2, <<"forbidden">>},
+                    {fun cb_context:set_resp_status/2, <<"error">>},
+                    {fun cb_context:set_resp_error_code/2, 403}])
+            end;
         _ ->
             cb_context:setters(Context,
                                [{fun cb_context:set_resp_error_msg/2, <<"SosRequest not found">>},
@@ -568,6 +520,7 @@ handle_post(Context, Id,?PATH_STATUS) ->
 
 -spec handle_delete(cb_context:context(), path_token()) -> cb_context:context().
 handle_delete(Context, Id) ->
+    
     case sos_request_db:find(Id) of 
         notfound -> 
             cb_context:setters(Context,
@@ -575,14 +528,24 @@ handle_delete(Context, Id) ->
                 {fun cb_context:set_resp_status/2, 'error'},
                 {fun cb_context:set_resp_error_code/2, 404}]
             );
-        _ -> 
-            sos_request_db:del_by_id(Id),
-            Resp = #{
-                id => Id
-            },
-            cb_context:setters(Context,
-                       [{fun cb_context:set_resp_data/2, Resp},
-                        {fun cb_context:set_resp_status/2, success}])
+        Info -> 
+            Role = cb_context:role(Context),
+            UserId = cb_context:user_id(Context),
+            case sos_request_handler:is_owner_or_admin(Role, UserId, Info) of 
+                true ->
+                    sos_request_db:del_by_id(Id),
+                    Resp = #{
+                        id => Id
+                    },
+                    cb_context:setters(Context,
+                            [{fun cb_context:set_resp_data/2, Resp},
+                                {fun cb_context:set_resp_status/2, success}]);
+                false ->
+                    cb_context:setters(Context,
+                    [{fun cb_context:set_resp_error_msg/2, <<"forbidden">>},
+                        {fun cb_context:set_resp_status/2, <<"error">>},
+                        {fun cb_context:set_resp_error_code/2, 403}])
+            end
     end.
 
 permissions() ->

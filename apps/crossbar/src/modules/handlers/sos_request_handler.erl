@@ -24,6 +24,7 @@
     change_request_status/2,
     change_task_status/2,
     maybe_update_request_status/2,
+    maybe_update_request_info/2,
     validate_update_status/2,
     get_requester_info/1,
     get_requester_info/2,
@@ -31,8 +32,30 @@
     build_search_conditions/2,
     find_bookmark/3,
     maybe_filter_bookmark/3,
-    maybe_filter_bookmark_by_group/2
+    maybe_filter_bookmark_by_group/2,
+    is_owner/2,
+    is_owner_or_admin/3
 ]).
+
+
+
+is_owner_or_admin(?USER_ROLE_ADMIN, UserId, Info) -> true;
+is_owner_or_admin(?USER_ROLE_OPERATOR, UserId, Info) -> true;
+is_owner_or_admin(_,UserId, Info) -> 
+    is_owner(UserId, Info).
+
+is_owner(<<>>, _) -> false;
+is_owner(UserId, #{
+    requester_info := #{
+        <<"id">> := UserId,
+        <<"type">> := ?OBJECT_TYPE_USER
+    }
+}) -> true;
+
+is_owner(UserId, Info) -> 
+    %TODO: implement group id
+   false.
+
 
 not_found_user_bookmark(SosRequestInfo) -> 
     maps:merge(SosRequestInfo, #{
@@ -220,6 +243,70 @@ ColorInfo = configuration_handler:get_high_priority_color(Colors),
 lager:debug("calculate_color_type ColorInfo: ~p~n",[ColorInfo]),
 ColorInfo.
 
+maybe_update_request_info(Context, #{
+    support_types := SupportTypesDb,
+    address_info := AddressInfoDb,
+    contact_info := ContactInfoDb,
+    color_info := ColorInfoDb,
+    share_phone_number := SharePhoneNumberDb,
+    medias := MediasDb,
+    request_object_status := ObjectStatusDb,
+    description := DescriptionDb,
+    location := LocationDb
+} = RequestInfo) -> 
+
+    ReqJson = cb_context:req_json(Context),
+    Description = wh_json:get_value(<<"description">>, ReqJson, DescriptionDb),
+    NewSupportTypes = 
+        case wh_json:get_value(<<"support_types">>, ReqJson, <<>>) of 
+                <<>> -> SupportTypesDb;
+                SupportTypeReq -> 
+                    zt_util:to_map_list(SupportTypeReq)
+        end,
+    Location = wh_json:get_value(<<"location">>, ReqJson, LocationDb),
+    AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson, AddressInfoDb)),
+    
+    NewContactInfo = 
+        case wh_json:get_value(<<"contact_info">>, ReqJson, <<>>) of
+            <<>> ->  ContactInfoDb;
+            ContactInfoProps -> zt_util:to_map(ContactInfoProps)
+        end,
+    NewSharePhoneNumber = wh_json:get_value(<<"share_phone_number">>, ReqJson, SharePhoneNumberDb) ,
+
+    NewMedias = 
+        case wh_json:get_value(<<"medias">>, ReqJson, []) of
+            [] ->  MediasDb;
+            MediaProps -> zt_util:to_map_list(MediaProps)
+        end,
+
+    NewObjectStatus = 
+        case wh_json:get_value(<<"requester_object_status">>, ReqJson, []) of
+            [] ->  ObjectStatusDb;
+            ObjectStatusProps -> zt_util:to_map_list(ObjectStatusProps)
+        end,
+
+    NewColorInfo = 
+        case NewSupportTypes of
+            SupportTypesDb ->  ColorInfoDb;
+            _ ->   sos_request_handler:calculate_color_type(NewSupportTypes)
+        end,
+
+    NewInfo =  maps:merge(RequestInfo,#{
+                    description => Description,
+                    support_types => NewSupportTypes,
+                    color_info => NewColorInfo,
+                    location => Location,
+                    address_info => AddressInfo,
+                    contact_info => NewContactInfo,
+                    share_phone_number => NewSharePhoneNumber,
+                    medias => NewMedias,
+                    request_object_status => NewObjectStatus,
+                    updated_by => app_util:get_requester_id(Context),
+                    updated_time => zt_datetime:get_now()
+    }),
+    sos_request_db:save(NewInfo),
+    NewInfo.
+
 % Requester update status or
 % Operator update status
 maybe_update_request_status(#{
@@ -260,6 +347,7 @@ maybe_update_request_status(#{
                 {success,NewSosRequestInfo}
             end
     end.
+
 add_status_history(StatusInfo, undefined) -> 
     add_status_history(StatusInfo, []); 
 
