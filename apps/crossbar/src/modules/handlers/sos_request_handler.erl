@@ -52,9 +52,18 @@ is_owner(UserId, #{
     }
 }) -> true;
 
-is_owner(UserId, Info) -> 
+is_owner(UserId, #{
+    requester_info := #{
+        <<"id">> := RequesterGroupId,
+        <<"type">> := ?OBJECT_TYPE_GROUP
+    }
+}) -> 
     %TODO: implement group id
-   false.
+    FilteredGroups = group_handler:find_groups_by_user(UserId),
+
+    lists:any(fun(#{id := GroupId}) -> 
+        RequesterGroupId == GroupId
+    end,FilteredGroups).
 
 
 not_found_user_bookmark(SosRequestInfo) -> 
