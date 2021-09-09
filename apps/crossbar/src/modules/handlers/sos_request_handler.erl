@@ -26,9 +26,68 @@
     maybe_update_request_status/2,
     validate_update_status/2,
     get_requester_info/1,
-    get_requester_info/2
+    get_requester_info/2,
+    deformat_sorts/3,
+    build_search_conditions/2,
+    find_bookmark/3,
+    maybe_filter_bookmark/3,
+    maybe_filter_bookmark_by_group/2
 ]).
 
+not_found_user_bookmark(SosRequestInfo) -> 
+    maps:merge(SosRequestInfo, #{
+        is_bookmarked => false
+    }).
+not_found_group_bookmark(SosRequestInfo) -> 
+    maps:merge(SosRequestInfo, #{
+        is_group_bookmarked => false
+    }).
+maybe_filter_bookmark(_,<<>>, SosRequestInfo) -> 
+    not_found_user_bookmark(SosRequestInfo);
+maybe_filter_bookmark(_,undefined, SosRequestInfo) -> maybe_filter_bookmark(ignore,<<>>, SosRequestInfo);
+maybe_filter_bookmark(ObjecType, ObjectId, #{bookmarks := Bookmarks} = SosRequestInfo) -> 
+    case find_bookmark(Bookmarks, ObjecType, ObjectId) of 
+        {true, BookmarkInfo} ->
+                maps:merge(SosRequestInfo, #{
+                    is_bookmarked => true,
+                    bookmark_info => BookmarkInfo
+                });
+        false -> maybe_filter_bookmark(ignore,<<>>, SosRequestInfo)
+    end.
+
+maybe_filter_bookmark_by_group(Groups, #{bookmarks := Bookmarks} = SosRequestInfo) ->
+    GroupBookmarks = 
+    lists:filtermap(fun(#{id := GroupId}) ->
+        case find_bookmark(Bookmarks, ?OBJECT_TYPE_GROUP, GroupId) of 
+            {true, BookmarkInfo} ->
+                    NewSosRequestInfo = 
+                        maps:merge(SosRequestInfo, #{
+                            is_group_bookmarked => true,
+                            bookmark_info => BookmarkInfo
+                        }),
+                    {true, NewSosRequestInfo};
+            false -> fasle
+        end
+
+    end,Groups),
+    case length(GroupBookmarks) of 
+        0 -> not_found_group_bookmark(SosRequestInfo);
+        _ -> 
+            maps:merge(SosRequestInfo, #{
+                is_group_bookmarked => true,
+                group_bookmarks => GroupBookmarks
+            })
+    end.
+    
+find_bookmark([], Type, Id) -> false;
+
+find_bookmark([Info|OtherBookmars], Type, Id) -> 
+      case Info of 
+      #{
+        <<"id">> := Id 
+      } ->  {true, Info};
+      _ -> find_bookmark(OtherBookmars, Type, Id)
+    end.
 
 change_request_status(?SOS_REQUEST_STATUS_OPEN,?SOS_REQUEST_STATUS_VERIFIED) -> ?SOS_REQUEST_STATUS_VERIFIED;
 change_request_status(?SOS_REQUEST_STATUS_REOPEN,?SOS_REQUEST_STATUS_VERIFIED) -> ?SOS_REQUEST_STATUS_VERIFIED;

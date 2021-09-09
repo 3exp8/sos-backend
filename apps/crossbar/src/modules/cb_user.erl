@@ -9,7 +9,8 @@
 -define(PATH_PROFILE, <<"profile">>).
 -define(PERMISSION_CREATE_USER, <<"create_staff">>).
 -define(PERMISSION_CREATE_USER_DESC, {?PERMISSION_CREATE_USER, <<"User create other users">>}).
-
+-define(PATH_SUGGEST, <<"suggest">>).
+-define(PATH_BOOKMARK, <<"bookmark">>).
 -export([init/0
          ,allowed_methods/0
          ,allowed_methods/1
@@ -134,6 +135,8 @@ authorize(_Context, ?PATH_PROFILE = _Path) -> true;
 authorize(_Context, ?PATH_RESEND = _Path) -> true;
 authorize(_Context, ?PATH_CONFIRM = _Path) -> true;
 authorize(_Context, ?PATH_SEARCH = _Path) -> true;
+authorize(_Context, ?PATH_BOOKMARK = _Path) -> true;
+authorize(_Context, ?PATH_SUGGEST = _Path) -> true;
 
 authorize(Context, ?PATH_CREATE = Path) ->
   authorize_verb(Context, Path, cb_context:req_verb(Context)).
@@ -231,25 +234,12 @@ handle_get({Req, Context}, ?PATH_PROFILE) ->
   lager:debug("UserId: ~p~n",[UserId]),
   case user_db:find(UserId) of 
     #{} = UserInfo -> 
-    Groups = group_db:find_by_conditions(
-      [
-        {'or',[
-              {<<"members.id">>,UserId},
-              {<<"members#id">>,UserId}
-            ]}],[],10,0),
-    FilteredGroups = 
-            lists:map(fun(#{members := Members} = GroupInfo) -> 
-              
-              MemberInfo = maps:with([id, type, name], GroupInfo),
-              maps:merge(MemberInfo, #{
-                role => user_handler:find_role(Members, UserId)
-              })
-            end,Groups),
-  
-    PropUserInfo = get_sub_fields_users(UserInfo),
-    RespData = maps:merge(PropUserInfo,#{
-      groups => FilteredGroups
-    }),
+   
+      FilteredGroups = group_handler:find_groups_by_user(UserId),
+      PropUserInfo = get_sub_fields_users(UserInfo),
+      RespData = maps:merge(PropUserInfo,#{
+        groups => FilteredGroups
+      }),
     {Req, cb_context:setters(Context
                     ,[{fun cb_context:set_resp_data/2, RespData}
                     ,{fun cb_context:set_resp_status/2, 'success'}
@@ -262,6 +252,38 @@ handle_get({Req, Context}, ?PATH_PROFILE) ->
                   {fun cb_context:set_resp_error_code/2, 404}
       ])}
   end;
+
+handle_get({Req, Context}, ?PATH_BOOKMARK) ->
+  UserId = cb_context:user_id(Context),
+  QueryJson = cb_context:query_string(Context),
+  Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
+  Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
+  PropQueryJson = wh_json:to_proplist(QueryJson),
+          SosRequests = 
+              sos_request_db:find_by_conditions([
+                  {<<"bookmarks.bookmarker_type">>,?OBJECT_TYPE_USER},
+                  {<<"bookmarks.bookmarker_id">>,UserId}
+              ], PropQueryJson, Limit, Offset),
+        {Req,
+  cb_context:setters(Context,
+                            [{fun cb_context:set_resp_data/2, SosRequests},
+                             {fun cb_context:set_resp_status/2, success}])};
+
+handle_get({Req, Context}, ?PATH_SUGGEST) ->
+  UserId = cb_context:user_id(Context),
+  QueryJson = cb_context:query_string(Context),
+          Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
+          Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
+          PropQueryJson = wh_json:to_proplist(QueryJson),
+          SosRequests = 
+              sos_request_db:find_by_conditions([
+                  {<<"suggest_info.target_type">>,?OBJECT_TYPE_USER},
+                  {<<"suggest_info.target_id">>,UserId}
+              ], PropQueryJson, Limit, Offset),
+        {Req,
+         cb_context:setters(Context,
+                            [{fun cb_context:set_resp_data/2, SosRequests},
+                             {fun cb_context:set_resp_status/2, success}])};
 
 handle_get({Req, Context}, Id) ->
   Role = cb_context:role(Context),	

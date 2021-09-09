@@ -161,16 +161,16 @@ authorize_verb(_Context, _Id, ?PATH_SUPPORT, _) -> true;
 
 authorize_verb(Context, _Id, ?PATH_SUGGEST, ?HTTP_POST) -> 
     Role = cb_context:role(Context),
-    Role == ?USER_ROLE_USER;
+    authorize_util:check_role(Role, ?USER_ROLE_OPERATOR_GE);
 
 authorize_verb(Context, _Id, ?PATH_BOOKMARK, ?HTTP_POST) -> 
     Role = cb_context:role(Context),
-    Role == ?USER_ROLE_USER;
+    authorize_util:check_role(Role, ?USER_ROLE_USER_GE);
 
 
 authorize_verb(Context, _Id, ?PATH_STATUS, ?HTTP_POST) -> 
     Role = cb_context:role(Context),
-    Role == ?USER_ROLE_USER; %TODO role operator, admin
+    authorize_util:check_role(Role, ?USER_ROLE_USER_GE); %TODO role operator, admin
 
 authorize_verb(_Context, _Id, _Path, _) -> false.
 
@@ -268,14 +268,21 @@ handle_post(Context, ?PATH_SEARCH) ->
         lager:debug("search final conditions: ~p~n",[Conds]),
         {Total, Requests} = sos_request_db:find_count_by_conditions(Conds, SortConds, Limit, Offset),
         lager:info("Total Request: ~p ~n",[Requests]),
-        PropRequests = 
-                lists:map(fun (Info) ->
-                    get_sub_fields(Info)
+        UserId = cb_context:user_id(Context),
+    
+        FilteredGroups = group_handler:find_groups_by_user(UserId),
+
+        FilteredRequests = 
+                lists:map(fun(Info) -> 
+                    NewInfo = sos_request_handler:maybe_filter_bookmark(?OBJECT_TYPE_USER, UserId, Info),
+                    NewInfo2 = sos_request_handler:maybe_filter_bookmark_by_group(FilteredGroups, NewInfo),
+                    get_sub_fields(NewInfo2,[bookmarks])
                 end,Requests),
+
         PropsRequestsWithTotal = 
                 #{
                     total => Total,
-                    sos_requests => PropRequests
+                    sos_requests => FilteredRequests
                 },
         cb_context:setters(Context
                            ,[{fun cb_context:set_resp_data/2, PropsRequestsWithTotal}
@@ -476,7 +483,7 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                                         bookmarker_type => TargetType,
                                         bookmarker_id => TargetId,
                                         bookmarker_name => BookmarkerName,
-                                        suggest_time => zt_datetime:get_now()
+                                        bookmark_time => zt_datetime:get_now()
                                     },
                                     sos_request_handler:maybe_add_bookmarks(BookmarksDb, BookmarkInfo);
                                 <<"unbookmark">> -> 
@@ -721,6 +728,16 @@ validate_request(Id, ?PATH_STATUS, Context, ?HTTP_POST) ->
 validate_request(_Id, _, Context, _Verb) ->
                 Context.
 
+get_sub_fields(Info,OtherField) when is_atom(OtherField) ->
+    get_sub_fields(Info,[OtherField]);
+
+get_sub_fields(Info,OtherFields) when is_list(OtherFields) ->
+    Fields = OtherFields ++ [verify_status,created_by, updated_by, updated_time],
+    maps:without(Fields, Info);
+
+get_sub_fields(Info,OtherFieldType) -> 
+   Field = zt_util:to_atom(OtherFieldType),
+   get_sub_fields(Info,Field).
+
 get_sub_fields(Info) ->
-    Fields = [verify_status,created_by, updated_by, updated_time],
-    maps:without(Fields, Info).
+    get_sub_fields(Info,[]).
