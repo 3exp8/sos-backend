@@ -5,6 +5,7 @@
     user_id :: binary(),
     account_id :: binary(),
     context :: map(),
+    role :: binary(),
     roles :: [map()]
     
 }).

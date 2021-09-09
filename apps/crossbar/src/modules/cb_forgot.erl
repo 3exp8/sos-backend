@@ -75,7 +75,7 @@ handle_post(Context) ->
 						user_actor:add_resend(PhoneNumber),
 						lager:info("USERDB ~p ~n", [UserDb]),
 						InitRespData = maps:with([phone_number],UserDb),
-						IsDebug = <<"true">>,
+						IsDebug = wh_json:get_value(<<"debug">>, ReqJson,<<>>),
 						RespData = 
 							case IsDebug of
 									<<"true">> -> 

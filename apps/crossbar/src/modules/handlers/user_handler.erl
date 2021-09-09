@@ -4,13 +4,17 @@
 
 -export([
     issue_token/2
+    ,find_role/2
     , check_register_user_existed/1
     , find_unconfirmed_user/1
     , handle_user_confirm/2
     , handle_user_resend/2
+    , maybe_update_role_token/3
     , send_otp/2
     , create_confirm_code_by_phone/1
+    ,validate_role/2
     , validate_phone_number/2
+    , validate_search_phone_number/2
     , validate_password/2
     , validate_confirm_phone_number/2
     , validate_confirm_code/2
@@ -19,6 +23,28 @@
     , validate_curr_password/2
     , validate_new_password/2
 ]).
+
+maybe_update_role_token(true, UserId, NewRole) -> 
+  AccessTokens = access_token_mnesia_db:find_by_user_id(UserId),
+  lists:foreach(fun(AccessTokenInfo) -> 
+    NewAccessTokenInfo = maps:merge(AccessTokenInfo, #{
+      role => NewRole
+    }),
+    access_token_mnesia_db:save(NewAccessTokenInfo)
+  end, AccessTokens),
+  %TODO with refresh_token
+ok;
+maybe_update_role_token(false, _UserId, _NewRoles) -> ok.
+find_role([], Id) -> <<>>;
+
+find_role([MemberInfo|OtherMembers], Id) -> 
+      case MemberInfo of 
+      #{
+        <<"id">> := Id, 
+        <<"role">> := Role 
+      } ->  Role;
+      _ -> find_role(OtherMembers, Id)
+    end.
 
 issue_token({ok, {Ctx,Auth}}, Context) ->
   emit_response(oauth2:issue_token_and_refresh(Auth, Ctx), Context);
@@ -135,11 +161,11 @@ handle_user_resend(Context,
     phone_number := PhoneNumberDb
   } = UserDbInfo
 )  -> 
-      case user_actor:check_otp_rule(PhoneNumberDb) of 
+      case user_actor:start_actor(PhoneNumberDb) of 
       true -> 
           ReqJson =  cb_context:req_json(Context),
           
-          IsDebug = wh_json:get_value(<<"debug">>, ReqJson, <<"true">>),
+          IsDebug = wh_json:get_value(<<"debug">>, ReqJson, <<"false">>),
 
           ConfirmCode = create_confirm_code_by_phone(PhoneNumberDb),
           NewUserInfo = maps:merge(UserDbInfo, #{
@@ -189,7 +215,9 @@ handle_user_resend(Context, _) ->
     ]).
 
 send_otp(PhoneNumber, ConfirmCode) when is_binary(ConfirmCode)->
-    tel4vn_voice_otp:call(PhoneNumber, ConfirmCode);
+  spawn(fun() -> 
+    tel4vn_voice_otp:call(PhoneNumber, ConfirmCode)
+  end);
 
 send_otp(PhoneNumber, ConfirmCode) ->
     send_otp(PhoneNumber, zt_util:to_bin(ConfirmCode)).
@@ -214,7 +242,13 @@ validate_confirm_phone_number(ReqJson, Context) ->
       api_util:validate_error(Context, <<"phone_number">>, <<"required">>, <<"phone_number_required">>);
     _ ->
       Context
-  end. 
+  end.
+
+-spec validate_search_phone_number(api_binary(), cb_context:context()) -> cb_context:context().
+validate_search_phone_number(ReqJson, Context) ->
+  Key = <<"phone_number">>,
+  Val = wh_json:get_value(Key, ReqJson, <<>>),
+  api_util:check_val(Context, Key, Val).
 
 -spec validate_phone_number(api_binary(), cb_context:context()) -> cb_context:context().
 validate_phone_number(ReqJson, Context) ->
@@ -234,6 +268,26 @@ validate_phone_number(ReqJson, Context) ->
           end
       end
   end. 
+
+-spec validate_role(api_binary(), cb_context:context()) -> cb_context:context().
+validate_role(ReqJson, Context) ->
+  Key = <<"role">>,
+  Val = wh_json:get_value(Key, ReqJson, <<>>),
+  case api_util:check_val(Context, Key, Val) of 
+    Context ->
+      validate_role_value(Key,Val,Context);
+    ErrorContext ->
+      ErrorContext
+  end.
+
+-spec validate_role_value(binary(), binary(), cb_context:context()) -> cb_context:context().
+validate_role_value(Key, Val, Context) ->
+    case lists:member(Val, ?USER_ROLES) of
+        true -> Context;
+        _ ->
+            Vals = zt_util:arr_to_str(?USER_ROLES),
+            api_util:validate_error(Context, Key, <<"invalid">>, <<"Invalid ",Key/binary,". Value must be ",Vals/binary>>)
+    end.
 
 -spec validate_password(api_binary(), cb_context:context()) -> cb_context:context().
 validate_password(ReqJson, Context) ->

@@ -83,8 +83,8 @@ authorize(Context) ->
 authorize_verb(_Context, ?HTTP_GET)  -> true;
 
 authorize_verb(Context, _) ->
-	authorize_util:authorize(?MODULE, Context).
-
+	Role = cb_context:role(Context),
+	Role == ?USER_ROLE_ADMIN.
 
 %% /api/v1/configurations/id
 -spec authorize(cb_context:context(), path_token()) -> boolean().
@@ -147,16 +147,6 @@ handle_get({Req, Context}) ->
     Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
   	Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
 	PropQueryJson = wh_json:to_proplist(QueryJson),
-
-	% Role = cb_context:role(Context),
-	% case Role of 
-	% 	?USER_ROLE_CUSTOMER ->
-	% 		Customer_id = cb_context:customer_id(Context),
-	% 		lager:info("Customer ID: ~p~n",[Customer_id]),
-	% 		Configurations = configuration_db:find_by_conditions([{customer_id,Customer_id}], PropQueryJson, Limit, Offset);
-	% 	?USER_ROLE_USER ->
-	% 		Configurations = configuration_db:find_by_conditions([], PropQueryJson, Limit, Offset)
-	% end,
 	Configurations = configuration_db:find_by_conditions([], PropQueryJson, Limit, Offset),
 	lager:debug("Data ~p~n",[Configurations]),
   	ProConfigurations = lists:map(
@@ -204,9 +194,8 @@ handle_get({Req, Context}, _ConfigurationId) ->
 handle_put(Context) ->
 	lager:debug("Handle PUT"),
 	ReqJson = cb_context:req_json(Context),
-	% Customer_id = cb_context:customer_id(Context),
-	Account_id = <<>>,
-	ConfigurationDb = get_configuration_data(ReqJson,Account_id),
+	UserId = cb_context:user_id(Context),
+	ConfigurationDb = get_configuration_data(ReqJson,UserId),
 	Resp = get_sub_fields(ConfigurationDb),
 	cb_context:setters(Context
                      ,[{fun cb_context:set_resp_data/2, Resp}
@@ -214,8 +203,7 @@ handle_put(Context) ->
                       ]).
 
 handle_post(Context, Id) ->
-	AccountId = cb_context:customer_id(Context),
-	% Role = cb_context:role(Context),
+	UserId = cb_context:user_id(Context),
 	Configuration = configuration_db:find(Id),
 	case Configuration of 
 		notfound ->
@@ -226,7 +214,7 @@ handle_post(Context, Id) ->
 		_ ->
 			ReqJson =  cb_context:req_json(Context),
 			ConfigurationInfo = update_configuration(ReqJson,Configuration),
-			NewConfiguration = maps:merge(ConfigurationInfo, #{updated_by_id => AccountId}),
+			NewConfiguration = maps:merge(ConfigurationInfo, #{updated_by_id => UserId}),
 			configuration_db:save(NewConfiguration),
 			RespData = get_sub_fields(NewConfiguration),
     		cb_context:setters(Context
@@ -276,16 +264,15 @@ update_configuration(ReqJson, Configuration) ->
 				updated_time_dt => UpdateTime
 			}).
 
-get_configuration_data(ReqJson, AccountId) ->
+get_configuration_data(ReqJson, UserId) ->
 	CreatedTime = zt_datetime:get_now(),
 			ConfigurationInfo = get_configuration_info(ReqJson),
 			Uuid = zt_util:get_uuid(),
 			ConfigurationId = <<"configuration",Uuid/binary>>,
 			ConfigurationDb = maps:merge(ConfigurationInfo, #{
 				id => ConfigurationId, 
-				account_id => AccountId,
-				created_by => AccountId,                               
-				updated_by => AccountId,
+				created_by => UserId,                               
+				updated_by => UserId,
 				updated_time_dt => CreatedTime,
 				created_time_dt => CreatedTime
 			}),
@@ -317,12 +304,13 @@ validate_request(Context, ?HTTP_PUT) ->
 	Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),	
 	ValidateFuns = [
-					fun validate_type/2,
-					fun validate_group/2
+					fun configuration_handler:validate_type/2,
+					fun configuration_handler:validate_group/2
 	],
 	lists:foldl(fun(F, C) ->
 					F(ReqJson, C)
 				end, Context1,  ValidateFuns);
+			
 validate_request(Context, ?HTTP_GET) ->
     cb_context:setters(Context,
 			   [{fun cb_context:set_resp_status/2, success}]);
@@ -335,11 +323,15 @@ validate_request(Context, _Verb) ->
 validate_request(_Id, Context, ?HTTP_GET) ->
     cb_context:setters(Context,
 			   [{fun cb_context:set_resp_status/2, success}]);
+
 validate_request(_Id, Context, ?HTTP_POST) ->
 	ReqJson = cb_context:req_json(Context),
 	Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),	 
-	ValidateFuns = [fun validate_value/2, fun validate_content_type/2],
+	ValidateFuns = [
+		fun configuration_handler:validate_value/2, 
+		fun configuration_handler:validate_content_type/2
+	],
 	lists:foldl(fun(F, C) ->
 					F(ReqJson, C)
 				end, Context1,  ValidateFuns);
@@ -349,58 +341,6 @@ validate_request(_Id, Context, ?HTTP_DELETE) ->
 			   [{fun cb_context:set_resp_status/2, success}]);
 			   
 validate_request(_Id, Context, _Verb) -> Context.
-
-
-is_key_exist( Key) ->
-	case configuration_db:find_by_conditions([{key,Key}], [], 1, 0) of 
-    [ConfigurationDb] when is_map(ConfigurationDb) ->
-      true ;
-    [] ->
-      false ;
-    Error ->
-      lager:error("Configuration Can't Register. Maybe Database With This Key: ~p; Error: ~p ~n", [Key,Error]),
-      throw(dberror)
-  end.
-
--spec validate_type(api_binary(),cb_context:context())->cb_context:cb_context().
-validate_type(ReqJson, Context) ->
-	Type = wh_json:get_value(<<"type">>,ReqJson,<<>>),
-  	case Type of
-		<<>> ->
-			  lager:debug("Required TYPE"),
-			  api_util:validate_error(Context,<<"type">>,<<"required">>,<<"Field 'type' is required">>);
-		_ -> Context
-	end.
-
--spec validate_value(api_binary(),cb_context:context())->cb_context:cb_context().
-validate_value(ReqJson, Context) ->
-	Value = wh_json:get_value(<<"value">>,ReqJson,<<>>),
-	case Value of 
-		<<>> ->
-				lager:debug("Required Value"),
-				api_util:validate_error(Context,<<"value">>,<<"required">>,<<"Field 'value' is required">>);
-		_ -> Context
-	end.
-
--spec validate_group(api_binary(),cb_context:context()) -> cb_context:cb_context().
-validate_group(ReqJson, Context) ->
-	Group = wh_json:get_value(<<"group">>,ReqJson,<<>>),
-	case Group of 
-		<<>> -> 
-			lager:debug("Required Group"),
-			api_util:validate_error(Context,<<"group">>,<<"required">>,<<"Field 'group' is required">>);
-		_ -> Context
-	end.
-
--spec validate_content_type(api_binary(),cb_context:context())->cb_context:cb_context().
-validate_content_type(ReqJson, Context) ->
-	Value = wh_json:get_value(<<"content_type">>,ReqJson,<<>>),
-	case Value of 
-		<<>> ->
-				lager:debug("Required Content Type"),
-				api_util:validate_error(Context,<<"content_type">>,<<"required">>,<<"Field 'content_type' is required">>);
-		_ -> Context
-	end.
 
 get_sub_fields(Configuration) ->
   Fields = [created_by, created_time_dt, updated_by, updated_time_dt, account_id] ,
