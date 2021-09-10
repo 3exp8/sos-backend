@@ -481,6 +481,13 @@ handle_post(Context, Id,?PATH_STATUS) ->
                         {fun cb_context:set_resp_status/2, <<"error">>},
                         {fun cb_context:set_resp_error_code/2, 400}
                     ]);
+                {error,forbidden} -> 
+                    Context2 = api_util:validate_error(Context, <<"status">>, <<"forbidden">>, forbidden),
+                    cb_context:setters(Context,[
+                        {fun cb_context:set_resp_error_msg/2, forbidden},
+                        {fun cb_context:set_resp_status/2, <<"error">>},
+                        {fun cb_context:set_resp_error_code/2, 403}
+                    ]);
                 {error,Error} -> 
                     Context2 = api_util:validate_error(Context, <<"status">>, <<"invalid">>, Error),
                     cb_context:setters(Context,[
