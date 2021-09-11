@@ -7,6 +7,7 @@ data:
     #!/bin/ash
     cp -f config/vm-$1.args releases/0.1.0/vm.args
     cp -f config/sys.config releases/0.1.0/
+    mkdir -p data/$1/mnesia
     ./bin/sos start
     tail -F log/console.log
     
@@ -29,6 +30,7 @@ data:
 
     -mnesia dump_log_write_threshold 50000
     -mnesia dc_dump_limit 40
+    -mnesia dir '"data/sos-backend-0/mnesia"'
 
     ## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
     ## (Disabled by default..use with caution!)
@@ -62,6 +64,7 @@ data:
 
     -mnesia dump_log_write_threshold 50000
     -mnesia dc_dump_limit 40
+    -mnesia dir '"data/sos-backend-1/mnesia"'
 
     ## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
     ## (Disabled by default..use with caution!)
@@ -87,7 +90,7 @@ data:
         {error_logger_mf_maxfiles, 5}           % 5 files max
       ]},
       {lager, [
-        {log_root, "log/"},
+        {log_root, "/usr/local/sos/data/log/"},
         {handlers, [
           {lager_console_backend, debug},
           {lager_file_backend, [{file, "error.log"}, {level, error}]},
