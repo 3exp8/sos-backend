@@ -99,7 +99,7 @@ authorize(Context) ->
 
 authorize_verb(Context, ?HTTP_GET) ->
     Role = cb_context:role(Context),
-    authorize_util:check_role(Role,?USER_ROLE_OPEARTOR_GE);
+    authorize_util:check_role(Role,?USER_ROLE_OPERATOR_GE);
 
 authorize_verb(Context, ?HTTP_PUT) -> true.
 
@@ -115,22 +115,28 @@ authorize_verb(Context, Path, ?HTTP_POST) ->
 
 authorize_verb(Context, Path, ?HTTP_DELETE) ->
     Role = cb_context:role(Context),
-    authorize_util:check_role(Role,?USER_ROLE_USER_GE);
+    authorize_util:check_role(Role,?USER_ROLE_USER_GE).
 
 -spec authorize(cb_context:context(), path_token(), path_token()) -> boolean().
 authorize(Context, _Id, ?PATH_VERIFY) ->
     Role = cb_context:role(Context),
-    authorize_util:check_role(Role,?USER_ROLE_OPEARTOR_GE);
+    authorize_util:check_role(Role,?USER_ROLE_OPERATOR_GE);
 
 authorize(Context, _Id, ?PATH_BOOKMARK) ->
     Role = cb_context:role(Context),
     authorize_util:check_role(Role,?USER_ROLE_USER_GE);
 
-authorize(Context, _Id, ?PATH_SUGGEST) ->
+authorize(Context, Id, ?PATH_SUGGEST = Path) ->
     Role = cb_context:role(Context),
-    authorize_util:check_role(Role,?USER_ROLE_OPEARTOR_GE);
+    authorize_verb(Context, Role, Path, cb_context:req_verb(Context));
 
 authorize(_Context, _Id, ?PATH_MEMBER) -> true.
+
+authorize_verb(Context, Role, ?PATH_SUGGEST, ?HTTP_GET) -> 
+    authorize_util:check_role(Role,?USER_ROLE_USER_GE);
+
+authorize_verb(Context, Role, ?PATH_SUGGEST, _) -> 
+    authorize_util:check_role(Role,?USER_ROLE_OPERATOR_GE).
 
 -spec validate(cb_context:context()) -> cb_context:context().
 validate(Context) ->
