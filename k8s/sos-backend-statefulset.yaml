@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: 
+  name: sos-backend 
+  labels:   
+    app: sos-backend
+spec: 
+  serviceName: "sos-backend-hl-svc" 
+  replicas: 1
+  selector:
+    matchLabels:     
+      app: sos-backend 
+  template:   
+    metadata:     
+      labels:       
+        app: sos-backend
+    spec:
+      volumes:       
+        - name: config-volume
+          configMap:         
+            name: sos-backend-config     
+      containers:     
+        - name: sos-backend      
+          image: nghiaembt/sos-backend:0.0.3
+          imagePullPolicy: IfNotPresent
+          ports:       
+            - containerPort: 8080      
+          volumeMounts:
+            - name: config-volume         
+              mountPath: /usr/local/sos/config
+          command:
+            - "ash"
+          args:  ["config/run-sos-backend.sh","$(POD_NAME)"]
+          env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
