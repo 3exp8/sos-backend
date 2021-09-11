@@ -90,7 +90,7 @@ data:
         {error_logger_mf_maxfiles, 5}           % 5 files max
       ]},
       {lager, [
-        {log_root, "/usr/local/sos/data/log/"},
+        {log_root, "log/"},
         {handlers, [
           {lager_console_backend, debug},
           {lager_file_backend, [{file, "error.log"}, {level, error}]},
