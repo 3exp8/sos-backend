@@ -111,7 +111,7 @@ authorize_verb(Context, Path, ?HTTP_GET) -> true;
 
 authorize_verb(Context, Path, ?HTTP_POST) ->
     Role = cb_context:role(Context),
-    Role == ?USER_ROLE_USER;
+    authorize_util:check_role(Role,?USER_ROLE_USER_GE);
 
 authorize_verb(Context, Path, ?HTTP_DELETE) ->
     Role = cb_context:role(Context),
