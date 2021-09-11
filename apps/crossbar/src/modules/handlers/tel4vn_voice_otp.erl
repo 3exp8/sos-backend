@@ -12,6 +12,7 @@
 -define(REMINDER_ACCESS_TOKEN_API, "/api/v1/users/generate_access_token").
 -define(REMINDER_CALL_START_API, "/api/v2/campaigns/").
 -define(REMINDER_CALL_END_API, "/otp").
+-define(TOKEN_KEY, sostokenkey).
 
 
 start_conn(Host, Port)->
@@ -31,27 +32,27 @@ stop_conn(Conn)->
 
 call(To, CallInfo) ->
 	Conn = start_conn(?Protocol, ?Host, ?Port),
-	Token = get_reminder_token(),
+	Token = get_tel4vn_access_token(),
 	{ok, Resp} = call(Conn, Token, To, CallInfo),
 	lager:info("AutoCall Response: ~p ~n", [Resp]),
 	stop_conn(Conn).
 
 call(Conn, Token, To, CallInfo) when is_binary(To) ->
-	{Header, Body} = get_call_request(Token, ?Caller, To, CallInfo),
+	{Header, Body} = build_request_voice_otp(Token, ?Caller, To, CallInfo),
 	Path = buildPath(),
 	shotgun:post(Conn, Path, Header, Body, #{});
 
 call(Conn, Token, To, CallInfo) when is_list(To) ->
-	{Header, Body} = get_call_request(Token, ?Caller, To, CallInfo),
+	{Header, Body} = build_request_voice_otp(Token, ?Caller, To, CallInfo),
 	Path = buildPath(),
 	shotgun:post(Conn, Path, Header, Body, #{}).
 
 get_reminder_token() ->
 	Conn = start_conn(?Protocol, ?Host, ?Port),
 	Path = ?REMINDER_ACCESS_TOKEN_API,
-	{Header, Body} = get_call_access_token_request(?Base64Secret),
+	{Header, Body} = build_request_get_access_token(?Base64Secret),
 	{ok, Response} = shotgun:post(Conn, Path, Header, Body, #{}),
-	Token = get_call_access_token_response_value(Response),
+	Token = get_access_token(Response),
 	lager:info("AutoCall Token: ~p ~n", [Token]),
 	stop_conn(Conn),
 	Token.
@@ -60,7 +61,17 @@ buildPath() ->
 	Path = ?REMINDER_CALL_START_API ++ binary_to_list(?CampaignId) ++ ?REMINDER_CALL_END_API,
 	Path.
 
-get_call_access_token_request(SecretKey) ->
+get_tel4vn_access_token() ->
+	case sos_cache:get(?TOKEN_KEY) of
+		{ok, Token} ->
+			Token;
+		{error, not_found} ->
+			Token = get_reminder_token(),
+			sos_cache:set(?TOKEN_KEY, Token),
+			Token
+	end.
+
+build_request_get_access_token(SecretKey) ->
 	Header = 	[
 		{<<"Accept">>,<<"application/json">>},
 		{<<"Content-Type">>,<<"application/json">>}
@@ -72,7 +83,7 @@ get_call_access_token_request(SecretKey) ->
 	Body = jsx:encode(Payload),
 	{Header, Body}.
 
-get_call_access_token_response_value(Response) ->
+get_access_token(Response) ->
 	ResBody = maps:get(body,Response),
 	ResDecode = jsx:decode(ResBody),
 	Content = proplists:get_value(<<"data">>, ResDecode),
@@ -80,7 +91,7 @@ get_call_access_token_response_value(Response) ->
 	Token = maps:get(<<"access_token">>, ContentMap),
 	Token.
 
-get_call_request(Token, Caller, To, CallInfo) ->
+build_request_voice_otp(Token, Caller, To, CallInfo) ->
 	Header =[
 		{<<"Accept">>,<<"application/json">>},
 		{<<"Content-Type">>,<<"application/json">>},
