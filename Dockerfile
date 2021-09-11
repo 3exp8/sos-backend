@@ -8,7 +8,7 @@ FROM ${repo} AS build
 
 RUN apk update
 RUN apk add make curl gcc build-base bsd-compat-headers git
-RUN cd /tmp/ && git clone https://github.com/3exp8/sos-backend.git
+RUN cd /tmp/ && git clone https://github.com/sos-hub-vn/sos-backend.git
 RUN cd /tmp/sos-backend/ && git checkout master
 
 RUN cd /tmp/sos-backend && make; exit 0

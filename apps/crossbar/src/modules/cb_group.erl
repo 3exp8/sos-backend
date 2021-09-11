@@ -394,6 +394,7 @@ handle_post(Context, Id,?PATH_MEMBER) ->
     end.
 
 handle_delete(Context, Id, ?PATH_MEMBER) ->
+    lager:debug("delete group member: id: ~p~n",[Id]),
     case group_db:find(Id) of 
         notfound -> 
             cb_context:setters(Context,
@@ -500,6 +501,7 @@ validate_request(_Id, Context, ?HTTP_POST = _Verb) ->
 
 validate_request(_Id, Context, ?HTTP_DELETE) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
+
 validate_request(_Id, Context, _Verb) ->
     Context.
 
@@ -516,8 +518,31 @@ validate_request(_Id, ?PATH_VERIFY, Context, ?HTTP_POST) ->
                 Context1,
                 ValidateFuns);
 
-validate_request(_Id, ?PATH_MEMBER, Context, _) ->
-    cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
+validate_request(_Id, ?PATH_MEMBER, Context, ?HTTP_POST) ->
+
+    ReqJson = cb_context:req_json(Context),
+    Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
+    ValidateFuns = [
+                    fun group_handler:validate_add_members/2],
+                   
+    lists:foldl(fun (F, C) ->
+                        F(ReqJson, C)
+                end,
+                Context1,
+                ValidateFuns);
+
+validate_request(_Id, ?PATH_MEMBER, Context, ?HTTP_DELETE) ->
+
+                ReqJson = cb_context:req_json(Context),
+                Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
+                ValidateFuns = [
+                                fun group_handler:validate_remove_members/2],
+                               
+                lists:foldl(fun (F, C) ->
+                                    F(ReqJson, C)
+                            end,
+                            Context1,
+                            ValidateFuns);
 
 validate_request(_Id, ?PATH_SUGGEST, Context, _) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
