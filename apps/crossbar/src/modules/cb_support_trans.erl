@@ -174,7 +174,7 @@ handle_put(Context) ->
                 medias => zt_util:to_map_list(wh_json:get_value(<<"medias">>, ReqJson,[])),
                 support_list =>  zt_util:to_map_list(wh_json:get_value(<<"support_list">>, ReqJson,[])),
                 support_time =>  wh_json:get_value(<<"support_time">>, ReqJson, zt_datetime:get_now()),
-                supporter_info =>  cb_sos_request:get_supporter_info(Type,Id),
+                supporter_info =>  sos_request_handler:get_supporter_info(Type,Id),
                 created_time => zt_datetime:get_now(),
                 created_by => UserId
             },
@@ -190,7 +190,7 @@ maybe_update_support_status(Type, Id, SosRequestInfo, ReqJson) ->
         <<>> -> 
             lager:debug("Do not update support status");
         SupportStatus -> 
-        NewSosRequestInfo = cb_sos_request:maybe_update_support_status(Type, Id, SosRequestInfo,SupportStatus),
+        NewSosRequestInfo = sos_request_handler:maybe_update_support_status(Type, Id, SosRequestInfo,SupportStatus),
             sos_request_db:save(NewSosRequestInfo)
     end.
 

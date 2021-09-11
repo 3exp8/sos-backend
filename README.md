@@ -61,3 +61,9 @@ curl --location --request POST 'http://localhost:8080/api/v1/auth' \
 }'
 
 </code>
+
+### Build Docker Image ###
+
+Dockerfile & K8S script for sos-backend
+
+`./cicd/build-docker.sh`

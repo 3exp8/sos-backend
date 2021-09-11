@@ -20,6 +20,7 @@
     refresh_token => binary(),
     user_id => binary(),
     account_id => binary(),
+    role => binary(),
     roles => [map()],
 	  context	=> context_type_info()
    }.
@@ -40,6 +41,7 @@ wakeup(Doc) ->
     refresh_token =>  Doc#access_token_mnesia_doc.refresh_token,
     user_id => Doc#access_token_mnesia_doc.user_id,
     account_id => Doc#access_token_mnesia_doc.account_id,
+    role => Doc#access_token_mnesia_doc.role,
     roles => Doc#access_token_mnesia_doc.roles,
     context	=> Doc#access_token_mnesia_doc.context
     
@@ -53,6 +55,7 @@ sleep(AccessTokenInfo) ->
       refresh_token = maps:get(refresh_token, AccessTokenInfo, <<>>),
       user_id = maps:get(user_id, AccessTokenInfo, <<>>),
       account_id = maps:get(account_id, AccessTokenInfo, <<>>),
+      role = maps:get(role, AccessTokenInfo, <<>>),
       roles = maps:get(roles, AccessTokenInfo, []),
       context = maps:get(context, AccessTokenInfo, #{})
-     }.
+    }.

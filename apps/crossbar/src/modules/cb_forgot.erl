@@ -12,7 +12,8 @@
 	]).
 
 -export([
-          permissions/0
+	errors/0,
+    permissions/0
   ]).
 
 
@@ -39,12 +40,8 @@ resource_exists() -> 'true'.
 authenticate(_Context) ->  true.
 
 -spec authorize(cb_context:context()) -> boolean().
--spec authorize(cb_context:context(), path_token()) -> boolean().
 authorize(_Context) ->
     true.
-
-authorize(_Context, _Id) ->
-    true. 
     
 -spec validate(cb_context:context()) ->  cb_context:context().
 %% Validate resource : /api/v1/forgot
@@ -54,35 +51,66 @@ validate(Context) ->
 %% POST api/v1/forgot
 -spec handle_post(cb_context:context()) -> cb_context:context().
 handle_post(Context) ->
-	Host =  cb_context:raw_host(Context),
-    Port = cb_context:raw_port(Context),
 	ReqJson =  cb_context:req_json(Context),
-   	Email = wh_json:get_value(<<"email">>, ReqJson),
-   	case user_db:find_by_email(Email) of 
-   	[#{id := AccountId, status := Status} = Account | _]  -> 
+   	PhoneNumber = wh_json:get_value(<<"phone_number">>, ReqJson),
+   	case user_db:find_by_phone_number(PhoneNumber) of 
+   	[
+		   #{
+			   id := AccountId, 
+			   status := Status
+			} = Account | _]  -> 
 		case Status of
-			?ACTIVE ->
-				ConfirmCode = zt_util:create_random_number(),
-        		lager:info("CONFIRM_CODE ~p ~n", [ConfirmCode]),
-				ConfirmCodeCreatedTime = zt_datetime:get_now(),
-				lager:info("nhit ~n",[]), 
-				spawn(fun() ->  app_util:send_email({'forgot', Context, AccountId, Email, ConfirmCode, Host, Port}) end),
-				UserDb = maps:merge(Account, #{confirm_code => ConfirmCode, 
-												confirm_code_created_time_dt => ConfirmCodeCreatedTime}),
-				user_db:save(UserDb),
-        lager:info("USERDB ~p ~n", [UserDb]),
-				cb_context:setters(Context
-			                       ,[{fun cb_context:set_resp_status/2, 'success'}]);
+			?USER_STATUS_ACTIVE ->
+				case user_actor:start_actor(PhoneNumber) of 
+					true -> 
+						ConfirmCode = zt_util:create_random_number(),
+						lager:info("CONFIRM_CODE ~p ~n", [ConfirmCode]),
+						ConfirmCodeCreatedTime = zt_datetime:get_now(),
+						
+						UserDb = maps:merge(Account, #{
+							confirm_code => ConfirmCode, 
+							confirm_code_created_time_dt => ConfirmCodeCreatedTime
+						}),
+						user_db:save(UserDb),
+						user_actor:add_resend(PhoneNumber),
+						lager:info("USERDB ~p ~n", [UserDb]),
+						InitRespData = maps:with([phone_number],UserDb),
+						IsDebug = wh_json:get_value(<<"debug">>, ReqJson,<<>>),
+						RespData = 
+							case IsDebug of
+									<<"true">> -> 
+										maps:merge(InitRespData, #{
+											confirm_code => ConfirmCode
+										});
+									_ ->
+											user_handler:send_otp(PhoneNumber,ConfirmCode),
+											InitRespData
+							end,
+						cb_context:setters(Context
+								,[{fun cb_context:set_resp_data/2, RespData}
+								,{fun cb_context:set_resp_status/2, 'success'}]);
+					OtpError ->
+						Context2 = api_util:validate_error(Context, <<"resend_otp">>, <<"invalid">>, OtpError),
+						cb_context:setters(Context2,
+							[
+							{fun cb_context:set_resp_error_msg/2, OtpError},
+							{fun cb_context:set_resp_status/2, <<"error">>},
+							{fun cb_context:set_resp_error_code/2, 400}
+						])
+
+				end;
 			_ ->
-				cb_context:setters(Context,
-	    			[{fun cb_context:set_resp_error_msg/2, <<"InActive Account">>},
+				Context2 = api_util:validate_error(Context, <<"user">>, <<"inactive">>, <<"user_inactive">>),
+				cb_context:setters(Context2,
+	    			[{fun cb_context:set_resp_error_msg/2, <<"InActive User">>},
 	    			 {fun cb_context:set_resp_status/2, <<"error">>},
 	                 {fun cb_context:set_resp_error_code/2, 400}
 	                ])
 		end;
 	_ -> 
-		cb_context:setters(Context,
-    			[{fun cb_context:set_resp_error_msg/2, <<"Email Not Found">>},
+		Context2 = api_util:validate_error(Context, <<"phone_number">>, <<"invalid">>, <<"phon_number_notfound">>),
+		cb_context:setters(Context2,
+    			[{fun cb_context:set_resp_error_msg/2, <<"Phone Number Not Found">>},
     			 {fun cb_context:set_resp_status/2, <<"error">>},
                  {fun cb_context:set_resp_error_code/2, 404}
                 ])
@@ -95,23 +123,33 @@ permissions() ->
 %% Internal Function
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -spec  validate_request(cb_context:context(), http_method()) -> cb_context:context().
-
-validate_request(Context, _Verb) ->
-	lager:info("validate_account: ~n",[]),
+validate_request(Context, ?HTTP_POST) ->
 	ReqJson = cb_context:req_json(Context),
 	Context1 = cb_context:setters(Context
-                       ,[{fun cb_context:set_resp_status/2, 'success'}]),	
-	Email = wh_json:get_value(<<"email">>, ReqJson, <<>>),	
+								  ,[{fun cb_context:set_resp_status/2, 'success'}]),	
+	ValidateFuns = [
+				   fun user_handler:validate_confirm_phone_number/2
+				],
+	lists:foldl(fun(F, C) ->
+					F(ReqJson, C)
+	end, Context1,  ValidateFuns);
 
-	case Email of
-		<<>> ->
-			api_util:validate_error(Context, <<"email">>, <<"required">>, <<"Field 'email' is required">>);
-        _ ->
-        	case re:run(zt_util:to_str(Email), ?EMAILREGX) of 
-        		nomatch ->
-        			api_util:validate_error(Context, <<"email">>, <<"invalid">>, <<"Invalid Email">>);
-        		_ ->
-        			Context1  
-			end
-	end.
-	
+validate_request(Context, _) -> Context.
+
+errors() -> 
+  Path = <<"forgot">>,
+  HandlePostValidates =
+  [
+    {<<"phone_number">>, <<"required">>, <<"phone_number_required">>},
+	{<<"user">>, <<"inactive">>, <<"user_inactive">>},
+	{<<"phone_number">>, <<"invalid">>, <<"phon_number_notfound">>},
+	{<<"resend_otp">>, <<"invalid">>, <<"phon_number_notfound">>},
+    {<<"resend_otp">>, <<"invalid">>, <<"resend_too_fast">>},
+    {<<"resend_otp">>, <<"invalid">>, <<"max_resend_reached">>}
+   
+  ],
+  HandlePost = app_util:declare_api_validate(<<"post">>,Path,HandlePostValidates),
+  Apis = [
+    HandlePost
+  ],
+  app_util:create_module_validates(Apis).

@@ -152,11 +152,12 @@ accepting_charges(Context) ->
 customer_id(#cb_context{customer_id = CustomerId}) -> CustomerId.
 account_id(#cb_context{account_id = AcctId}) -> AcctId.
 %role(#cb_context{role = Role, roles = Roles}) -> 
-role(#cb_context{roles = Roles}) -> 
-    case Roles of 
-      [_|_] -> ?USER_ROLE_USER;
-      _ -> ?USER_ROLE_CUSTOMER
-  end.
+role(#cb_context{role = Role}) -> 
+    Role.
+%     case Roles of 
+%       [_|_] -> ?USER_ROLE_USER;
+%       _ -> ?USER_ROLE_USER
+%   end.
 
 roles(#cb_context{roles = Roles}) -> Roles.
 user_id(#cb_context{user_id=UserId}) -> UserId.

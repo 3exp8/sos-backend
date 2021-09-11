@@ -27,7 +27,7 @@
 %%                   {'ok', pid()} |
 %%                   {'ok', pid(), term()} |
 %%                   {'error', startlink_err()}.
-start(_StartType, _StartArgs) -> 
+start(_StartType, _StartArgs) ->
 	db_init(),
 	 _ = start_deps(),
 	 init_mnesia_tables(),
@@ -166,9 +166,11 @@ start_deps() ->
                                                 ,'cowboy'
                                                 ,'worker_pool'
                                                 ,'ibrowse'
+												,'erlcloud'
                                                ]],
     'ok'.
 
 init_mnesia_tables() ->
   mnesia:change_table_copy_type(schema, node(), disc_copies),
-  access_token_mnesia_db:create_table().
+  access_token_mnesia_db:create_table(),
+  sos_cache:create_table().

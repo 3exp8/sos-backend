@@ -3,7 +3,7 @@
 -include("crossbar.hrl").
 -include("messages.hrl").
 
--define(RESEND, <<"resend">>).
+-define(PATH_RESEND, <<"resend">>).
 -define(PATH_PROFILE, <<"profile">>).
 -define(PATH_WALLET, <<"wallet">>).
 
@@ -92,10 +92,10 @@ resource_exists() -> 'true'.
 resource_exists(_CustomerId) -> 'true'.
 
 %% /api/v1/customer/path
-resource_exists(_CustomerId, ?CONFIRM) -> 'true';
+resource_exists(_CustomerId, ?PATH_CONFIRM) -> 'true';
 resource_exists(_CustomerId, ?CLIENTCONFIRM) -> 'true';
-resource_exists(_CustomerId, ?PASSWORD_CHANGE) -> 'true';
-resource_exists(_CustomerId, ?LOGOUT) -> 'true';
+resource_exists(_CustomerId, ?PATH_PASSWORD_CHANGE) -> 'true';
+resource_exists(_CustomerId, ?PATH_LOGOUT) -> 'true';
 resource_exists(_CustomerId, _Path) -> 'false'.
 
 %% /api/v1/customer/path/path
@@ -121,14 +121,14 @@ authenticate(Context, _CustomerId) ->
 
 %% /api/v1/customer/customerid/path
 -spec authenticate(cb_context:context(), path_token(), path_token()) -> boolean().
-authenticate(_Context, _CustomerId, ?CONFIRM) -> true;
+authenticate(_Context, _CustomerId, ?PATH_CONFIRM) -> true;
 authenticate(_Context, _CustomerId, ?CLIENTCONFIRM) -> true;
-authenticate(_Context, _CustomerId, ?RESEND) -> true;
-authenticate(Context, _CustomerId, ?PASSWORD_CHANGE) ->
+authenticate(_Context, _CustomerId, ?PATH_RESEND) -> true;
+authenticate(Context, _CustomerId, ?PATH_PASSWORD_CHANGE) ->
   Token = cb_context:auth_token(Context),
   app_util:oauth2_authentic(Token, Context);
 
-authenticate(Context, _CustomerId, ?LOGOUT) ->
+authenticate(Context, _CustomerId, ?PATH_LOGOUT) ->
   Token = cb_context:auth_token(Context),
   app_util:oauth2_authentic(Token, Context);
 
@@ -389,7 +389,7 @@ handle_post(Context, CustomerId) ->
 
 %% POST api/v1/customers/customerid/confirm
 -spec handle_post(cb_context:context(), path_token(), path_token()) -> cb_context:context().
-handle_post(Context, CustomerId, ?CONFIRM) ->
+handle_post(Context, CustomerId, ?PATH_CONFIRM) ->
   lager:debug("handle_post confirm customerid: ~p~n",[CustomerId]),
   ReqJson =  cb_context:req_json(Context),
   CurrentTimeToSecond = zt_util:timestamp_second(),
@@ -436,7 +436,7 @@ handle_post(Context, CustomerId, ?CONFIRM) ->
        end
   end;
 
-handle_post(Context, CustomerId, ?RESEND) ->
+handle_post(Context, CustomerId, ?PATH_RESEND) ->
   ReqJson =  cb_context:req_json(Context),
   
   IsDebug = wh_json:get_value(<<"debug">>, ReqJson, <<"true">>),
@@ -469,7 +469,7 @@ handle_post(Context, CustomerId, ?RESEND) ->
   end;
 
 %% POST api/v1/customer/customerid/change_password
-handle_post(Context, CustomerId, ?PASSWORD_CHANGE) ->
+handle_post(Context, CustomerId, ?PATH_PASSWORD_CHANGE) ->
   RequesterId = cb_context:customer_id(Context),
   if
     RequesterId == CustomerId ->
@@ -514,7 +514,7 @@ handle_post(Context, CustomerId, ?PASSWORD_CHANGE) ->
 
 
 %% POST api/v1/customer/customer_id/logout
-handle_post(Context, CustomerId, ?LOGOUT) ->
+handle_post(Context, CustomerId, ?PATH_LOGOUT) ->
   Role = cb_context:role(Context),
   ReqJson =  cb_context:req_json(Context),
   CustomerIdDb = cb_context:customer_id(Context),
@@ -769,7 +769,7 @@ validate_request(_CustomerId, Context, _Verb) ->
 
 %% POST api/v1/customer/customerid/confirm
 -spec  validate_request(path_token(), cb_context:context(), path_token(), http_method()) -> cb_context:context().
-validate_request(CustomerId, Context, ?CONFIRM, _Verb) ->
+validate_request(CustomerId, Context, ?PATH_CONFIRM, _Verb) ->
   Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),
   ValidateFuns = [fun validate_exist_customer/2
@@ -780,7 +780,7 @@ validate_request(CustomerId, Context, ?CONFIRM, _Verb) ->
                   F(CustomerId, C)
               end, Context1,  ValidateFuns);
 
-validate_request(_CustomerId, Context, ?RESEND, _Verb) ->
+validate_request(_CustomerId, Context, ?PATH_RESEND, _Verb) ->
   cb_context:setters(Context ,[{fun cb_context:set_resp_status/2, 'success'}]);
 
 validate_request(_CustomerId, Context, ?CLIENTCONFIRM, _Verb) ->
@@ -794,7 +794,7 @@ validate_request(_CustomerId, Context, ?CLIENTCONFIRM, _Verb) ->
               end, Context1,  ValidateFuns);
 
 %% POST api/v1/customer/customerid/logout
-validate_request(_CustomerId, Context, ?LOGOUT, _Verb) ->
+validate_request(_CustomerId, Context, ?PATH_LOGOUT, _Verb) ->
   Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),
   ReqJson =  cb_context:req_json(Context1),
@@ -1015,6 +1015,7 @@ process_password_grant(Context, CustomerId, PhoneNumber) ->
 
 issue_token({ok, {Ctx,Auth}}, Context) ->
   emit_response(oauth2:issue_token_and_refresh(Auth, Ctx), Context);
+
 issue_token(Error, Context) ->
   emit_response(Error, Context).
 

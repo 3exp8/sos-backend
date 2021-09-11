@@ -185,7 +185,7 @@ handle_put(Context) ->
                 #{
                     first_name := FirstName, 
                     last_name := LastName
-                } = customer_db:find(CustomerId),
+                } = user_db:find(CustomerId),
                 Info = #{
                     id => <<"news", Uuid/binary>>,
                     subject => wh_json:get_value(<<"subject">>, ReqJson,<<>>),
@@ -270,7 +270,7 @@ handle_post(Context, Id) ->
          #{
              first_name := FirstName, 
              last_name := LastName
-            } = customer_db:find(CustomerId),
+            } = user_db:find(CustomerId),
 
             NewMedias = 
             case wh_json:get_value(<<"medias">>, ReqJson, []) of
@@ -297,10 +297,10 @@ handle_post(Context, Id) ->
 
 -spec handle_post(cb_context:context(), path_token(), path_token()) -> cb_context:context().
 handle_post(Context, Id,?PATH_VERIFY) ->
-    case group_db:find(Id) of 
+    case news_db:find(Id) of 
         notfound -> 
             cb_context:setters(Context,
-                [{fun cb_context:set_resp_error_msg/2, <<"Group Not Found">>},
+                [{fun cb_context:set_resp_error_msg/2, <<"News Not Found">>},
                 {fun cb_context:set_resp_status/2, 'error'},
                 {fun cb_context:set_resp_error_code/2, 404}]
             );
@@ -324,7 +324,7 @@ handle_post(Context, Id,?PATH_VERIFY) ->
                     time => zt_util:now_to_utc_binary(os:timestamp())
                 }
             }),
-         group_db:save(NewInfo),
+         news_db:save(NewInfo),
          cb_context:setters(Context
                             ,[{fun cb_context:set_resp_data/2, NewInfo}
                               ,{fun cb_context:set_resp_status/2, 'success'}

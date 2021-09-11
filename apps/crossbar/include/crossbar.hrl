@@ -54,6 +54,9 @@
 -define(CANCELED, <<"cancel">>).
 -define(ACTIVE, <<"active">>).
 -define(INACTIVE, <<"inactive">>).
+-define(USER_STATUS_ACTIVE, <<"active">>).
+-define(USER_STATUS_INACTIVE, <<"inactive">>).
+-define(USER_STATUS_UNCONFIRMED, <<"unconfirmed">>).
   
 -define(HIDE, <<"hide">>).
 -define(SHOW, <<"show">>).
@@ -64,9 +67,9 @@
 -define(ENV, [<<"dev">>, <<"prod">>]).
 -define(DELIVERED, <<"success">>).
 -define(FAIL, <<"failure">>).
--define(CONFIRM, <<"confirm">>).
--define(PASSWORD_CHANGE, <<"password_change">>).
--define(LOGOUT, <<"logout">>).
+-define(PATH_CONFIRM, <<"confirm">>).
+-define(PATH_PASSWORD_CHANGE, <<"password_change">>).
+-define(PATH_LOGOUT, <<"logout">>).
 
 -define(DEAL_ORDER_CODE_SIZE, 3).
 -define(UUID_SIZE, 16).
@@ -83,10 +86,33 @@
 -define(DEFAULT_OFFSET, 0).
 -define(IS_COUNT, <<"false">>).
 %% user roles
--define(USER_ROLE_CUSTOMER, <<"CUSTOMER">>).  %% customers of a restaurant
--define(USER_ROLE_USER, <<"USER">>).  %% admin of a restaurant
--define(USER_ROLE_ADMIN, <<"ADMIN">>).  %% admin of a system
+-define(USER_ROLE_CUSTOMER, <<"CUSTOMER">>).  %% unused
+-define(USER_ROLE_GUEST, <<"GUEST">>).  %% not loggined user
+
+-define(USER_ROLE_ANY, <<"ANY">>).
+-define(USER_ROLE_USER_GE, <<"USER_GE">>).
+-define(USER_ROLE_OPERATOR_GE, <<"OPERATOR_GE">>).
+-define(USER_ROLE_USER, <<"USER">>).  %% logged in user
+-define(USER_ROLE_OPERATOR, <<"OPERATOR">>).  %% opeator user
+-define(USER_ROLE_ADMIN, <<"ADMIN">>).  %% admin user
+-define(USER_ROLES, [?USER_ROLE_USER,?USER_ROLE_OPERATOR,?USER_ROLE_ADMIN]).  %% admin user
+
 -define(CREATED_SOURCE_APP, <<"customers_app">>).
+
+-define(OBJECT_TYPE_GUEST,<<"guest">>).
+-define(OBJECT_TYPE_USER,<<"user">>).
+-define(OBJECT_TYPE_GROUP,<<"group">>).
+-define(SUGGEST_TARGET_TYPES,[?OBJECT_TYPE_USER, ?OBJECT_TYPE_GROUP]).
+
+
+-define(REQUESTER_TYPE_GUEST,<<"guest">>).
+-define(REQUESTER_TYPE_USER,<<"user">>).
+-define(REQUESTER_TYPE_GROUP,<<"group">>).
+-define(REQUESTER_TYPES,[?REQUESTER_TYPE_GUEST, ?REQUESTER_TYPE_USER, ?REQUESTER_TYPE_GROUP]).
+
+-define(SHARE_PHONE_NUMBER_TYPE_PRIVATE,<<"private">>).
+-define(SHARE_PHONE_NUMBER_TYPE_PUBLIC,<<"public">>).
+-define(SHARE_PHONE_NUMBER_TYPES,[?SHARE_PHONE_NUMBER_TYPE_PRIVATE, ?SHARE_PHONE_NUMBER_TYPE_PUBLIC]).
 
 %% grant_type
 -define(GRANT_TYPE, [<<"password">>, <<"refresh_token">>, <<"client_credentials">>, <<"token">>]).
@@ -119,7 +145,8 @@
       'cb_sos_request',
       'cb_support_type',
       'cb_support_trans',
-      'cb_apis'
+      'cb_apis',
+      'cb_s3'
     ]).
 
 

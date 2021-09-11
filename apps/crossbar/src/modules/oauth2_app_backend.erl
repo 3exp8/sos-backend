@@ -61,15 +61,15 @@ authenticate_scope_user({UserId, {confirm_code, ConfirmCode}}, Ctx) ->
 	#{
 		confirm_code := ConfirmCode,
 		account_id := AccountId,
-		email := Username,
-		role := Role, 
-		roles := Roles
+		phone_number := Username,
+		role := Role
+		%roles := Roles
 	}  ->
 		NewCtx = [
 			{<<"user_id">>, UserId}, 
 			{<<"account_id">>, AccountId}, 
 			{<<"role">>, Role}, 
-			{<<"roles">>, Roles}, 
+			%{<<"roles">>, Roles}, 
 			{<<"device_info">>, DeviceInfo}
 		],
 		lager:info("auth_token: NewCtx ~p ~n", [NewCtx]),
@@ -81,28 +81,38 @@ authenticate_scope_user({UserId, {confirm_code, ConfirmCode}}, Ctx) ->
 authenticate_scope_user({Username, Password}, Ctx) ->
 	%lager:info("auth_token: Ctx ~p ~n", [Ctx]),
 	DeviceInfo = proplists:get_value(device_info, Ctx, []),
-	case user_db:find_by_email(Username) of
+	case user_db:find_by_phone_number(Username) of
 	[
 	#{
 		id := UserId, 
 		account_id := AccountId, 
 		password := SecretKey, 
 		role := Role, 
-		roles := Roles, 
+		%roles := Roles, 
 		status := Status
 	}| _] when SecretKey /= <<>> ->
 		PassHash = zt_util:to_str(SecretKey),
 		{ok, ProvidedHash} = bcrypt:hashpw(Password, PassHash),
 		case PassHash == ProvidedHash of 
 		true -> 
-			if Status == ?ACTIVE ->
-				lager:info("auth_token------------------emnvn authenticate_scope_user user_id: ~p, AccountId: ~p ~n",[UserId, AccountId]),
-				% Scope = proplists:get_value(scope, Ctx, ?USER_ROLE_CUSTOMER),
-				NewCtx = [{<<"user_id">>, UserId}, {<<"account_id">>, AccountId}, {<<"role">>, Role}, {<<"roles">>, Roles}, {<<"device_info">>, DeviceInfo}],
-				lager:info("auth_token: NewCtx ~p ~n", [NewCtx]),
-				{ok, {NewCtx, Username}};
-			true ->
-				{ok, {{error, inactive}, Username}}
+			if 
+				Status == ?USER_STATUS_ACTIVE ->
+					lager:info("auth_token------------------emnvn authenticate_scope_user user_id: ~p, AccountId: ~p ~n",[UserId, AccountId]),
+					% Scope = proplists:get_value(scope, Ctx, ?USER_ROLE_CUSTOMER),
+					NewCtx = [
+						{<<"user_id">>, UserId}, 
+						%{<<"account_id">>, AccountId}, 
+						{<<"role">>, Role}, 
+						%{<<"roles">>, Roles}, 
+						{<<"device_info">>, DeviceInfo}
+					],
+					lager:info("auth_token: NewCtx ~p ~n", [NewCtx]),
+					{ok, {NewCtx, Username}};
+				Status == ?USER_STATUS_INACTIVE ->
+					{ok, {{error, inactive}, Username}};
+
+				true ->
+					{ok, {{error, notfound}, Username}}
 			end ;
 		_  ->
 			{error, badpass}
@@ -164,7 +174,7 @@ associate_refresh_token(RefreshToken, Context, Ctx) ->
 
 associate_access_token(AccessToken, Context, Ctx) ->
 	lager:info("Access Token: Ctx ~p ~n", [Ctx]),
-	Role = proplists:get_value(<<"role">>, Ctx, ?USER_ROLE_CUSTOMER),
+	Role = proplists:get_value(<<"role">>, Ctx, ?USER_ROLE_USER),
 	RefreshToken = proplists:get_value(<<"refresh_token">>, Ctx, <<>>),
 	lager:info("TEST refresh token ~p ~n", [RefreshToken]),
 	{UserId, AccountId} = 
@@ -220,20 +230,35 @@ resolve_access_token(AccessToken, Ctx) ->
 	%% returned from this function according to the spec.
 	%case db:find_by_token(AccessToken) of
 	case access_token_mnesia_db:find_by_token(AccessToken) of
-	#{context := Context, user_id := UserId, account_id := AccountId, roles := Roles} -> 
+	#{
+		context := Context, 
+		user_id := UserId, 
+		account_id := AccountId,
+		role := RoleDb,
+		roles := Roles
+	} = TokenInfo -> 
 		ListContext= 
 		lists:map(fun({expiry_time =K, V}) -> {to_binary(K), to_integer(V)} ;
 					 ({K, V}) -> {to_binary(K), V}
 		end, maps:to_list(Context)), 
 		lager:debug("order_authorize  resolve_access_token Context: ~p~n",[Context]),
 		Scope = maps:get(<<"scope">>, Context, <<>>),
+		lager:debug("order_authorize  resolve_access_token TokenInfo: ~p~n",[TokenInfo]),
 		Role = 
-		case Scope of 
-			<<"CUSTOMER">> -> ?USER_ROLE_CUSTOMER;
-			_ -> <<>>
-		end,
+			case RoleDb of 
+				<<>> -> 
+					case Scope of 
+						<<"CUSTOMER">> -> ?USER_ROLE_CUSTOMER;
+						_ -> <<>>
+					end;
+				_ -> RoleDb
+			end,
 
-		Resp = [{<<"user_id">>, UserId},{<<"account_id">>, AccountId}, {<<"role">>, Role}, {<<"roles">>, Roles} | ListContext],
+		Resp = [
+			{<<"user_id">>, UserId},
+			%{<<"account_id">>, AccountId}, 
+			{<<"role">>, Role}, 
+			{<<"roles">>, Roles} | ListContext],
 		lager:debug("order_authorize resolve_access_token Resp: ~p~n",[Resp]),
 		{ok, {Ctx, Resp}};
 	_ -> {error, notfound}

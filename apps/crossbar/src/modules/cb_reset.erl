@@ -9,6 +9,7 @@
 	,handle_post/1
 	,authenticate/1
 	,authorize/1
+	,errors/0
 	]).
 
 init() ->
@@ -47,52 +48,63 @@ validate(Context) ->
 -spec handle_post(cb_context:context()) -> cb_context:context().
 handle_post(Context) ->
 	ReqJson =  cb_context:req_json(Context),
-   	Email = wh_json:get_value(<<"email">>, ReqJson, <<>>),
+   	PhoneNumber = wh_json:get_value(<<"phone_number">>, ReqJson, <<>>),
    	Password = wh_json:get_value(<<"password">>, ReqJson, <<>>),
    	ConfirmCode= wh_json:get_value(<<"confirm_code">>,  ReqJson, <<>>), 
-   	case user_db:find_by_email(Email) of 
-   	[#{id := AccountId, confirm_code := ConfirmCodeServer, 
-   		confirm_code_created_time_dt:= ConfirmCodeCreatedTimeServer} = Account | _] -> 
-	   	UpdatedTime = zt_datetime:get_now(),
-	   	CurrentTimeSecond = zt_util:timestamp_second(),
+   	case user_db:find_by_phone_number(PhoneNumber) of 
+   	[#{
+		   id := Id, 
+		   role := RoleDb,
+		   confirm_code := ConfirmCodeServer, 
+		   confirm_code_created_time_dt:= ConfirmCodeCreatedTimeServer
+		} = Info | _] -> 
 		ConfirmCodeCreatedTimeServerToSecond = zt_util:datetime_binary_to_second(ConfirmCodeCreatedTimeServer),
+		OtpExpiredDuration = zt_util:to_integer(application:get_env(crossbar, otp_expired_duration, 120)),
+
+		EplasedSeconds = zt_datetime:diff_second(ConfirmCodeCreatedTimeServer),
 		if 
-		CurrentTimeSecond - ConfirmCodeCreatedTimeServerToSecond >  ?DATESECOND ->
-		
-			cb_context:setters(Context,
-			        			[{fun cb_context:set_resp_error_msg/2, <<"Code Exprired">>},
-			        			 {fun cb_context:set_resp_status/2, <<"error">>},
-			                     {fun cb_context:set_resp_error_code/2, 400}
-			                    ]);
+			EplasedSeconds > OtpExpiredDuration ->
+				Context2 = api_util:validate_error(Context, <<"confirm_code">>, <<"invalid">>, <<"confirm_code_expired">>),
+				cb_context:setters(Context2,
+									[{fun cb_context:set_resp_error_msg/2, <<"Code Exprired">>},
+									{fun cb_context:set_resp_status/2, <<"error">>},
+									{fun cb_context:set_resp_error_code/2, 400}
+									]);
 
 		ConfirmCode =:= ConfirmCodeServer  ->
 			{ok, Salt} = bcrypt:gen_salt(?WORKFACTOR),
 			{ok, NewPassHash} = bcrypt:hashpw(Password, Salt),
-			UserDb = maps:merge(Account, #{password => zt_util:to_bin(NewPassHash),
-											updated_time_dt => UpdatedTime,
-											confirm_code => <<>>}),
+			UserDb = maps:merge(Info, #{
+					password => zt_util:to_bin(NewPassHash),
+					updated_time_dt => zt_datetime:get_now()
+			}),
 			user_db:save(UserDb), 
-			api_doc:del_tokens_of_user(AccountId),
-			cb_context:setters(Context
+			api_doc:del_tokens_of_user(Id),
+			Scope    =  wh_json:get_value(<<"scope">>, ReqJson, ?USER_ROLE_USER),
+			Auth     = oauth2:authorize_password({Id, {confirm_code,ConfirmCode}}, <<>>, Scope, [{scope, Scope}]),
+			lager:debug("Auth: ~p,RoleDb: ~p~n",[Auth, RoleDb]),
+			ContextWithRole = cb_context:set_role(Context,RoleDb),
+			lager:debug("ContextWithRole: ~p~n",[ContextWithRole]),
+
+			NewContext = user_handler:issue_token(Auth, ContextWithRole),
+			cb_context:setters(NewContext
                        ,[{fun cb_context:set_resp_status/2, 'success'}]);
 		true ->
-			cb_context:setters(Context,
+			Context2 = api_util:validate_error(Context, <<"confirm_code">>, <<"invalid">>, <<"confirm_code_not_match">>), 
+			cb_context:setters(Context2,
         			[{fun cb_context:set_resp_error_msg/2, <<"Invalid Code">>},
         			 {fun cb_context:set_resp_status/2, <<"error">>},
                      {fun cb_context:set_resp_error_code/2, 400}
                     ])
-		end ;
+		end;
 	_ ->
-		cb_context:setters(Context,
-        			[{fun cb_context:set_resp_error_msg/2, <<"Email Not Found">>},
+		Context2 = api_util:validate_error(Context, <<"phone_number">>, <<"invalid">>, <<"phon_number_notfound">>),
+		cb_context:setters(Context2,
+        			[{fun cb_context:set_resp_error_msg/2, <<"Phone number Not Found">>},
         			 {fun cb_context:set_resp_status/2, <<"error">>},
                      {fun cb_context:set_resp_error_code/2, 404}
                     ])
 	end. 
-			
-
-	
-
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Internal Function
@@ -100,54 +112,34 @@ handle_post(Context) ->
 -spec  validate_request(cb_context:context(), http_method()) -> cb_context:context().
 
 validate_request(Context, _Verb) ->
-	lager:info("validate_account: ~n",[]),
+	lager:info("validate reset password: ~n",[]),
 	ReqJson = cb_context:req_json(Context),
 	Context1 = cb_context:setters(Context
                        ,[{fun cb_context:set_resp_status/2, 'success'}]),	
-	ValidateFuns = [fun validate_email/2
-					,fun validate_password/2
-					,fun validate_confirm_code/2],
+	ValidateFuns = [
+						fun user_handler:validate_confirm_phone_number/2
+						,fun user_handler:validate_password/2
+						,fun user_handler:validate_confirm_code/2
+	],
 	lists:foldl(fun(F, C) ->
 			F(ReqJson, C)
 	end, Context1,  ValidateFuns).
 
-
--spec validate_password(api_binary(), cb_context:context()) -> cb_context:context().
-validate_password(ReqJson, Context) ->
-	Password = wh_json:get_value(<<"password">>, ReqJson, <<>>),
-	LenPass = length(zt_util:to_str(Password)),
-	case LenPass of
-		0 ->
-			api_util:validate_error(Context, <<"password">>, <<"required">>, <<"Field 'password' is required">>);
-		Val when Val < 8 ->
-			api_util:validate_error(Context, <<"password">>, <<"invalid">>, <<"Password must have at least 8 characters">>);
-		_ -> 
-			Context
-	end.
-
--spec validate_email(api_binary(), cb_context:context()) -> cb_context:context().
-validate_email(ReqJson, Context) ->
-	Email = wh_json:get_value(<<"email">>, ReqJson, <<>>),	
-	case Email of
-		<<>> ->
-			api_util:validate_error(Context, <<"email">>, <<"required">>, <<"Field 'email' is required">>);
-        _ ->
-        	case re:run(zt_util:to_str(Email), ?EMAILREGX) of 
-        		nomatch ->
-        			api_util:validate_error(Context, <<"email">>, <<"invalid">>, <<"Invalid Email">>);
-        		_ ->
-        			Context 
-			end
-	end.
-
-
--spec validate_confirm_code(api_binary(), cb_context:context()) -> cb_context:context().
-validate_confirm_code(ReqJson, Context) ->
-	ConfirmCode = wh_json:get_value(<<"confirm_code">>, ReqJson, <<>>),	
-	case ConfirmCode of
-		<<>> ->
-			api_util:validate_error(Context, <<"confirm_code">>, <<"required">>, <<"Field 'confirm_code' is required">>);
-        _ ->
-			Context
-	end.
-	
+errors() -> 
+  Path = <<"reset">>,
+  HandlePostValidates =
+  [
+    {<<"phone_number">>, <<"required">>, <<"phone_number_required">>},
+	{<<"phone_number">>, <<"invalid">>, <<"phon_number_notfound">>},
+	{<<"confirm_code">>, <<"required">>, <<"confirm_code_required">>},
+	{<<"confirm_code">>, <<"invalid">>, <<"confirm_code_expired">>},
+    {<<"confirm_code">>, <<"invalid">>, <<"confirm_code_not_match">>},
+	{<<"password">>, <<"required">>, <<"password_required">>},
+    {<<"password">>, <<"invalid">>, <<"password_min_8_charactor">>} 
+   
+  ],
+  HandlePost = app_util:declare_api_validate(<<"post">>,Path,HandlePostValidates),
+  Apis = [
+    HandlePost
+  ],
+  app_util:create_module_validates(Apis).
