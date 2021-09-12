@@ -407,11 +407,15 @@ maybe_update_support_status(Type, Id, SosRequestInfo, NewSupportStatus) ->
                         _ -> SupportInfo
                     end
         end,Supporters),
-    NewSosRequestInfo = 
-        maps:merge(SosRequestInfo,#{
-            supporters => NewSupporters
-         }),
-    {ok, NewSosRequestInfo}.
+    case NewSupporters of 
+        Supporters -> {error,no_change};
+        _ -> 
+            NewSosRequestInfo = 
+                maps:merge(SosRequestInfo,#{
+                    supporters => NewSupporters
+                }),
+            {ok, NewSosRequestInfo}
+    end.
 
 is_joined_request(Type, Id, SosRequestInfo) ->
     Supporters = maps:get(supporters, SosRequestInfo, []),
