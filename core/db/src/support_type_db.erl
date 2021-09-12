@@ -60,11 +60,15 @@ find_by_conditions(AccountQuery, Query, Limit, Offset) ->
   sumo:find_by(?DOC, Conditions, SortOrders, Limit, Offset).
 
 build_sort([], []) ->
-  [{created_time, desc}];
+  [{<<"color_info.priority">>, asc}];
 
 build_sort(Query, [{Key, Value}| Tail]) when is_list(Query) -> 
 
   Condition = if  
+        Key == <<"sort_priority">> -> {<<"color_info.priority">>, Value};
+        Key == <<"sort_type">> -> {type, Value};
+        Key == <<"sort_name">> -> {name, Value};
+        Key == <<"sort_unit">> -> {unit, Value};
         Key == <<"sort_created_by">> -> {created_by_name, Value};
         Key == <<"sort_created_time">> -> {created_time, Value};
         Key == <<"sort_updated_by">> -> {updated_by_name, Value};
@@ -85,7 +89,15 @@ build_sort(_Query, _Other) ->
   build_sort([], []).
 
 build_query(Query, [{Key, Value}| Tail]) when is_list(Query) -> 
-  Condition = if  
+  Condition = if
+        Key == <<"filter_type">>  -> {type, Value};
+        Key == <<"filter_name">>  -> {name, Value};
+        Key == <<"filter_unit">>  -> {unit, Value};
+        Key == <<"filter_target_type">>  ->
+            {'or',[
+              {<<"target_types.type">>, Value},
+              {<<"target_types#type">>, Value}
+            ]};
         Key == <<"filter_created_by">>  -> {created_by_id, Value};
         Key == <<"filter_created_time_gt">>  -> {created_time, '>', datetime_util:utc_format(Value)};
         Key == <<"filter_created_time_gte">>  -> {created_time, '>=', datetime_util:utc_format(Value)};

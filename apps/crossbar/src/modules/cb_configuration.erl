@@ -218,17 +218,20 @@ handle_post(Context, Id) ->
 							]);
 		#{
 			value := ValueDb,
-			content_type := ContentTypeDb
+			content_type := ContentTypeDb,
+			order := OrderDb
 		} = InfoDb ->
 			ReqJson =  cb_context:req_json(Context),
-			Value = wh_json:get_value(<<"value">>,ReqJson,ValueDb),
-			ContentType = wh_json:get_value(<<"content_type">>,ReqJson,ContentTypeDb),
+			NewValue = wh_json:get_value(<<"value">>,ReqJson,ValueDb),
+			NewContentType = wh_json:get_value(<<"content_type">>,ReqJson,ContentTypeDb),
+			NewOrder = zt_util:to_integer(wh_json:get_value(<<"order">>,ReqJson,OrderDb)),
 			NewInfo = 
 				maps:merge(InfoDb,#{
-							value => Value,
-							content_type => ContentType,
-							updated_by_id => UserId,
-							updated_time_dt => zt_datetime:get_now()
+					order => NewOrder,
+					value => NewValue,
+					content_type => NewContentType,
+					updated_by_id => UserId,
+					updated_time_dt => zt_datetime:get_now()
 				}),
 			configuration_db:save(NewInfo),
 			RespData = get_sub_fields(NewInfo),
@@ -331,8 +334,8 @@ validate_request(_Id, Context, ?HTTP_POST) ->
 	Context1 = cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_status/2, 'success'}]),	 
 	ValidateFuns = [
-		fun configuration_handler:validate_value/2, 
-		fun configuration_handler:validate_content_type/2
+		% fun configuration_handler:validate_value/2, 
+		% fun configuration_handler:validate_content_type/2
 	],
 	lists:foldl(fun(F, C) ->
 					F(ReqJson, C)

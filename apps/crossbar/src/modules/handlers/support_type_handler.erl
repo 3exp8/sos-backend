@@ -3,12 +3,21 @@
 -include("crossbar.hrl").
 
 -export([
+    is_type_exist/1,
     validate_type/2,
     validate_name/2,
     validate_color_type/2
 ]).
 
-
+is_type_exist(Type) ->
+	case support_type_db:find_by_conditions([
+        {type, Type}
+    ], [], 1, 0) of 
+    [Info] when is_map(Info) ->  true;
+    [] -> false;
+    Error ->
+      throw(dberror)
+  end.
 
 -spec validate_color_type(api_binary(), cb_context:context()) -> cb_context:context().
 validate_color_type(ReqJson, Context) ->
