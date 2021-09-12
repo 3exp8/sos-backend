@@ -7,6 +7,7 @@
     calculate_color_type/1,
     get_supporter_info/2,
     get_suggester_info/1,
+    is_joined_request/3,
     maybe_update_support_status/4,
     maybe_add_bookmarks/2,
     maybe_remove_bookmarks/3,
@@ -400,12 +401,25 @@ maybe_update_support_status(Type, Id, SosRequestInfo, NewSupportStatus) ->
                             });
                         _ -> SupportInfo
                     end
-                end,Supporters),
+        end,Supporters),
     NewSosRequestInfo = 
         maps:merge(SosRequestInfo,#{
             supporters => NewSupporters
          }),
     {ok, NewSosRequestInfo}.
+
+is_joined_request(Type, Id, SosRequestInfo) ->
+    Supporters = maps:get(supporters, SosRequestInfo, []),
+    lists:any(fun(SupportInfo) -> 
+        case SupportInfo of 
+            #{
+                <<"type">> := Type,
+                <<"id">> := Id
+            } ->
+                true;
+            _ -> false
+        end
+    end,Supporters).
 
 get_supporter_info(?REQUESTER_TYPE_GROUP, Id) -> 
    case  group_db:find(Id) of 
