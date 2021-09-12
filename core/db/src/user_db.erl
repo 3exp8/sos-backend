@@ -1,12 +1,24 @@
 -module(user_db).
 
 %%% User API
--export([save/1, 
-		  del/1, del_by_id/1, del_by_email/1,
-      del_by_phone_number/1, del_all/0, 
-		  find/1, find_by_account_id/1, find_by_email/1, find_by_phone_number/1, 
-      find_all/0, find_all/2, find_by_conditions/4, 
-      reindex/0, reindex/1 ]).
+-export([
+      save/1, 
+		  del/1, 
+      del_by_id/1, 
+      del_by_email/1,
+      del_by_phone_number/1, 
+      del_all/0, 
+		  find/1, 
+      find_by_account_id/1, 
+      find_by_email/1, 
+      find_by_phone_number/1, 
+      find_by_role/1, 
+      find_all/0, 
+      find_all/2, 
+      find_by_conditions/4, 
+      reindex/0, 
+      reindex/1 
+    ]).
 
 -type condition()   :: {atom(), atom()}.
 -type conditions()  :: [condition()].
@@ -64,6 +76,10 @@ find_by_email(Email) ->
 -spec find_by_phone_number(binary()) -> [user_doc:user()].
 find_by_phone_number(PhoneNumber) ->  
   sumo:find_by(user_doc, [{phone_number_id, PhoneNumber}]).
+
+-spec find_by_role(binary()) -> [user_doc:user()].
+find_by_role(Role) ->  
+  sumo:find_by(user_doc, [{role_id, Role}]).
 
 -spec find_all() -> [user_doc:user()].
 find_all() ->

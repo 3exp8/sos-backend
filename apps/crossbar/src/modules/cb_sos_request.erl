@@ -145,7 +145,7 @@ authorize(Context, Path) ->
 
 authorize_verb(Context, Path, ?HTTP_GET) ->
     Role = cb_context:role(Context),
-    authorize_util:check_role(Role,?USER_ROLE_OPERATOR_GE);
+    authorize_util:check_role(Role,?USER_ROLE_ANY);
 
 authorize_verb(_Context, ?PATH_SEARCH, ?HTTP_POST) -> true;
 
@@ -329,7 +329,7 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
     ReqJson = cb_context:req_json(Context),
     Type = wh_json:get_value(<<"type">>, ReqJson,<<>>),
     SupporterId = wh_json:get_value(<<"supporter_id">>, ReqJson,<<>>),
-    case sos_request_handler:get_supporter_info(Type, SupporterId)  of 
+    case sos_request_handler:get_supporter_info(Type, SupporterId,cb_context:user_id(Context))  of 
     {error, Error} -> 
         cb_context:setters(Context,
         [{fun cb_context:set_resp_error_msg/2, Error},
@@ -341,24 +341,33 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                     status := StatusDb,
                     supporters := SupportersDb
                 } = RequestInfo ->
-                    UpdatedTime = zt_datetime:get_now(),
-                    NewStatus = sos_request_handler:change_request_status(StatusDb, ?SOS_REQUEST_STATUS_ACCEPTED),
-                    SuppoterInfo = maps:merge(BaseSupporterInfo, #{
-                        schedule_support_date => wh_json:get_value(<<"support_date">>, ReqJson,<<>>),
-                        description => wh_json:get_value(<<"description">>, ReqJson,<<>>),
-                        status => ?SOS_TASK_STATUS_OPEN
-                    }),
-                    NewSupporters = [SuppoterInfo|SupportersDb],
-                    NewInfo =  maps:merge(RequestInfo,#{
-                            status => NewStatus,
-                            supporters => NewSupporters,
-                            updated_by => app_util:get_requester_id(Context),
-                            updated_time => UpdatedTime
-                    }),
-                    sos_request_db:save(NewInfo),
-                    cb_context:setters(Context,
-                                    [{fun cb_context:set_resp_data/2, NewInfo},
-                                        {fun cb_context:set_resp_status/2, success}]);
+                    case sos_request_handler:is_joined_request(Type,SupporterId,RequestInfo) of 
+                    false -> 
+                        UpdatedTime = zt_datetime:get_now(),
+                        NewStatus = sos_request_handler:change_request_status(StatusDb, ?SOS_REQUEST_STATUS_ACCEPTED),
+                        SuppoterInfo = maps:merge(BaseSupporterInfo, #{
+                            schedule_support_date => wh_json:get_value(<<"support_date">>, ReqJson,<<>>),
+                            description => wh_json:get_value(<<"description">>, ReqJson,<<>>),
+                            status => ?SOS_TASK_STATUS_OPEN
+                        }),
+                        NewSupporters = [SuppoterInfo|SupportersDb],
+                        NewInfo =  maps:merge(RequestInfo,#{
+                                status => NewStatus,
+                                supporters => NewSupporters,
+                                updated_by => app_util:get_requester_id(Context),
+                                updated_time => UpdatedTime
+                        }),
+                        sos_request_db:save(NewInfo),
+                        cb_context:setters(Context,
+                                        [{fun cb_context:set_resp_data/2, NewInfo},
+                                            {fun cb_context:set_resp_status/2, success}]);
+                    true -> 
+                        cb_context:setters(Context,
+                        [{fun cb_context:set_resp_error_msg/2, <<"You are always join this request">>},
+                            {fun cb_context:set_resp_status/2, <<"error">>},
+                            {fun cb_context:set_resp_error_code/2, 400}])
+                end;
+                        
                 _ ->
                     cb_context:setters(Context,
                                     [{fun cb_context:set_resp_error_msg/2, <<"SosRequest not found">>},
@@ -702,7 +711,7 @@ get_sub_fields(Info,OtherField) when is_atom(OtherField) ->
     get_sub_fields(Info,[OtherField]);
 
 get_sub_fields(Info,OtherFields) when is_list(OtherFields) ->
-    Fields = OtherFields ++ [verify_status,created_by, updated_by, updated_time],
+    Fields = OtherFields ++ [created_by, updated_by, updated_time],
     maps:without(Fields, Info);
 
 get_sub_fields(Info,OtherFieldType) -> 

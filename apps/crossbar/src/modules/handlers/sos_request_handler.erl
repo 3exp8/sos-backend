@@ -5,8 +5,9 @@
 
 -export([
     calculate_color_type/1,
-    get_supporter_info/2,
+    get_supporter_info/3,
     get_suggester_info/1,
+    is_joined_request/3,
     maybe_update_support_status/4,
     maybe_add_bookmarks/2,
     maybe_remove_bookmarks/3,
@@ -347,13 +348,22 @@ maybe_update_request_status(#{
                         note => wh_json:get_value(<<"note">>, ReqJson,<<>>),
                         time => zt_datetime:get_now()
                     }, StatusHistoryDb),
+                
                 NewSosRequestInfo = 
                         maps:merge(SosRequestInfo, #{
                             status => NewStatus,
                             status_history => NewStatusHistory
                         }),
-                sos_request_db:save(NewSosRequestInfo),
-                {success,NewSosRequestInfo}
+                NewSosRequestInfo2 = 
+                    case NewStatus of 
+                        ?SOS_REQUEST_STATUS_VERIFIED -> 
+                            maps:merge(NewSosRequestInfo, #{
+                                verify_status => ?SOS_REQUEST_STATUS_VERIFIED
+                            });
+                        _ -> NewSosRequestInfo
+                    end,
+                sos_request_db:save(NewSosRequestInfo2),
+                {success,NewSosRequestInfo2}
             end
     end.
 
@@ -391,29 +401,46 @@ maybe_update_support_status(Type, Id, SosRequestInfo, NewSupportStatus) ->
                             });
                         _ -> SupportInfo
                     end
-                end,Supporters),
+        end,Supporters),
     NewSosRequestInfo = 
         maps:merge(SosRequestInfo,#{
             supporters => NewSupporters
          }),
     {ok, NewSosRequestInfo}.
 
-get_supporter_info(?REQUESTER_TYPE_GROUP, Id) -> 
-   case  group_db:find(Id) of 
+is_joined_request(Type, Id, SosRequestInfo) ->
+    Supporters = maps:get(supporters, SosRequestInfo, []),
+    lists:any(fun(SupportInfo) -> 
+        case SupportInfo of 
+            #{
+                <<"type">> := Type,
+                <<"id">> := Id
+            } ->
+                true;
+            _ -> false
+        end
+    end,Supporters).
+
+get_supporter_info(?REQUESTER_TYPE_GROUP, GroupId, UserId) -> 
+   case  group_db:find(GroupId) of 
    notfound -> {error,notfound};
   #{
         name := Name,
         contact_info := ContactInfo
   } -> 
-    #{
-        id => Id,
-        type => ?REQUESTER_TYPE_GROUP,
-        name => Name,
-        contact_info => ContactInfo
-    }
-end;
+        case group_handler:is_group_member(GroupId, UserId)  of 
+            true ->
+                #{
+                    id => GroupId,
+                    type => ?REQUESTER_TYPE_GROUP,
+                    name => Name,
+                    contact_info => ContactInfo
+                };
+            false -> {error,is_not_group_member}
+        end
+    end;
 
-get_supporter_info(?REQUESTER_TYPE_USER, Id) -> 
+get_supporter_info(?REQUESTER_TYPE_USER, Id, Id) -> 
    case user_db:find(Id) of 
    notfound -> {error,notfound};
   #{
@@ -436,7 +463,7 @@ get_supporter_info(?REQUESTER_TYPE_USER, Id) ->
         {error,other}
 end;
 
-get_supporter_info(_, _) -> {error, not_support}.
+get_supporter_info(_, _, _) -> {error, not_support}.
 
 get_target_type(?OBJECT_TYPE_USER = TargetType,Id) -> 
     case user_db:find(Id) of 

@@ -85,7 +85,10 @@
 -define(DEFAULT_LIMIT, 20).
 -define(DEFAULT_OFFSET, 0).
 -define(IS_COUNT, <<"false">>).
+
 %% user roles
+-define(USER_ROLE_SYSTEM, <<"SYSTEM">>).
+
 -define(USER_ROLE_CUSTOMER, <<"CUSTOMER">>).  %% unused
 -define(USER_ROLE_GUEST, <<"GUEST">>).  %% not loggined user
 
@@ -114,6 +117,11 @@
 -define(SHARE_PHONE_NUMBER_TYPE_PUBLIC,<<"public">>).
 -define(SHARE_PHONE_NUMBER_TYPES,[?SHARE_PHONE_NUMBER_TYPE_PRIVATE, ?SHARE_PHONE_NUMBER_TYPE_PUBLIC]).
 
+-define (CLUSTER_ACTION_JOIN,<<"join">>).
+-define (CLUSTER_ACTION_LEAVE,<<"leave">>).
+-define (CLUSTER_ACTION_TYPES,[?CLUSTER_ACTION_JOIN, ?CLUSTER_ACTION_LEAVE]).
+
+
 %% grant_type
 -define(GRANT_TYPE, [<<"password">>, <<"refresh_token">>, <<"client_credentials">>, <<"token">>]).
 
@@ -123,12 +131,11 @@
 -define(MaxItemPart, 4).
 
 -define(DEFAULT_MODULES,[ 
-      'cb_accounts', 
+      %'cb_accounts', 
       'cb_auth', 
       'cb_client', 
       'cb_configuration', 
       'cb_confirm_code', 
-      'cb_customers', 
       'cb_device', 
       'cb_events', 
       'cb_forgot', 
@@ -146,7 +153,8 @@
       'cb_support_type',
       'cb_support_trans',
       'cb_apis',
-      'cb_s3'
+      'cb_s3',
+      'cb_systemctl'
     ]).
 
 

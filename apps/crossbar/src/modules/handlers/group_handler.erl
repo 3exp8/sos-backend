@@ -5,6 +5,7 @@
 
 -export([
     find_groups_by_user/1,
+    is_group_member/2,
     validate_type/2,
     validate_add_members/2,
     validate_remove_members/2,
@@ -13,6 +14,7 @@
     validate_detail_info/2,
     validate_verify_status/2
 ]).
+
 
 find_groups_by_user(<<>>) -> [];
 find_groups_by_user(undefined) -> [];
@@ -29,6 +31,19 @@ find_groups_by_user(UserId) ->
                   role => user_handler:find_role(Members, UserId)
                 })
     end,Groups).
+
+is_group_member(GroupId, UserId) ->
+    Conds = [
+                {id, GroupId},
+                {'or',[
+                    {<<"members.id">>,UserId},
+                    {<<"members#id">>,UserId}
+                    ]}
+            ],
+    case group_db:find_by_conditions(Conds,[],1,0) of
+        [] -> false;
+        _ -> true 
+    end.
 
  
 validate_type(ReqJson, Context) ->

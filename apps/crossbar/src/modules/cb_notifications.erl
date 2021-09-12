@@ -110,7 +110,7 @@ handle_get({Req, Context}) ->
 	lager:debug("Role = ~p~n", [Role]),
 	case Role of
 		?USER_ROLE_CUSTOMER ->
-			Customer_id = cb_context:customer_id(Context),
+			Customer_id = cb_context:user_id(Context),
 			Notifications = notification_db:find_by_conditions([{"destinations#id", Customer_id}], PropQueryJson, Limit, Offset);
 		?USER_ROLE_USER ->
 			User_id = cb_context:user_id(Context),
