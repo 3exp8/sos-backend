@@ -90,7 +90,6 @@ maybe_filter_bookmark(ObjecType, ObjectId, #{bookmarks := Bookmarks} = SosReques
     end.
 
 maybe_filter_bookmark_by_group(Groups, #{bookmarks := Bookmarks} = SosRequestInfo) ->
-    lager:debug("maybe_filter_bookmark_by_group Groups: ~p ~n",[Groups]),
     GroupBookmarks = 
     lists:filtermap(fun(#{id := GroupId}) ->
         find_bookmark(Bookmarks, ?OBJECT_TYPE_GROUP, GroupId)

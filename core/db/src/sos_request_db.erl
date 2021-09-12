@@ -72,7 +72,9 @@ build_sort([], []) ->
 
 build_sort(Query, [{Key, Value}| Tail]) when is_list(Query) -> 
 
-  Condition = if  
+  Condition = if
+        Key == <<"sort_distance">> -> {location, 'distance', Value};
+        Key == <<"sort_priority">> -> {<<"color_info.priority">>,  Value};
         Key == <<"sort_created_by">> -> {created_by, Value};
         Key == <<"sort_created_time">> -> {created_time, Value};
         Key == <<"sort_updated_by">> -> {updated_by, Value};

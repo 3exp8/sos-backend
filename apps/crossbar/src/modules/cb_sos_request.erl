@@ -266,7 +266,7 @@ handle_post(Context, ?PATH_SEARCH) ->
         %Unit = proplists:get_value(<<"unit">>, ReqJson, <<>>),
         Unit = <<"km">>,
         % Distance = zt_util:to_str(proplists:get_value(<<"distance">>, Data, <<"5">>)S),
-        SortCondsList = wh_json:get_value(<<"sorts">>, ReqJson, []),
+        SortCondsList = wh_json:get_value(<<"sorts">>, ReqJson, [[{<<"sort_distance">>,asc}],[{<<"sort_priority">>,asc}]]),
         SortConds = sos_request_handler:deformat_sorts(SortCondsList, zt_util:to_bin(CurrentLocation), Unit),
         % lager:info("SortConds: ~p ~n",[SortConds]),
         Conds = sos_request_handler:build_search_conditions(CurrentLocation, ReqJson),
