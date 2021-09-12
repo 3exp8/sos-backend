@@ -702,7 +702,7 @@ get_sub_fields(Info,OtherField) when is_atom(OtherField) ->
     get_sub_fields(Info,[OtherField]);
 
 get_sub_fields(Info,OtherFields) when is_list(OtherFields) ->
-    Fields = OtherFields ++ [verify_status,created_by, updated_by, updated_time],
+    Fields = OtherFields ++ [created_by, updated_by, updated_time],
     maps:without(Fields, Info);
 
 get_sub_fields(Info,OtherFieldType) -> 

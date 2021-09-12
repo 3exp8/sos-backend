@@ -36,7 +36,8 @@
 
 -export([
           errors/0,
-          permissions/0
+          permissions/0,
+          get_user_info/1
   ]).
 
 init() ->
@@ -388,12 +389,11 @@ handle_put(Context, ?PATH_CREATE) ->
   Uuid = zt_util:get_uuid(),
   ConfirmCode = zt_util:create_random_number(),
   UserInfo = get_user_info(ReqJson),
-  UserId = <<"user", Uuid/binary>>,
   UserBaseInfo = 
     case user_handler:find_unconfirmed_user(PhoneNumber) of 
       notfound -> 
           maps:merge(UserInfo, #{
-                id => UserId,
+                id => <<"user", Uuid/binary>>,
                 first_name => FirstName, 
                 last_name => LastName,
                 status => ?USER_STATUS_UNCONFIRMED,

@@ -7,8 +7,7 @@
 
 -export([
             create_schema/0,
-            delete_schema/0,
-            init_data/0
+            delete_schema/0
         ]).
 
 -opaque user() :: map().

@@ -347,13 +347,22 @@ maybe_update_request_status(#{
                         note => wh_json:get_value(<<"note">>, ReqJson,<<>>),
                         time => zt_datetime:get_now()
                     }, StatusHistoryDb),
+                
                 NewSosRequestInfo = 
                         maps:merge(SosRequestInfo, #{
                             status => NewStatus,
                             status_history => NewStatusHistory
                         }),
-                sos_request_db:save(NewSosRequestInfo),
-                {success,NewSosRequestInfo}
+                NewSosRequestInfo2 = 
+                    case NewStatus of 
+                        ?SOS_REQUEST_STATUS_VERIFIED -> 
+                            maps:merge(NewSosRequestInfo, #{
+                                verify_status => ?SOS_REQUEST_STATUS_VERIFIED
+                            });
+                        _ -> NewSosRequestInfo
+                    end,
+                sos_request_db:save(NewSosRequestInfo2),
+                {success,NewSosRequestInfo2}
             end
     end.
 
