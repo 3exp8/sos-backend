@@ -329,7 +329,7 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
     ReqJson = cb_context:req_json(Context),
     Type = wh_json:get_value(<<"type">>, ReqJson,<<>>),
     SupporterId = wh_json:get_value(<<"supporter_id">>, ReqJson,<<>>),
-    case sos_request_handler:get_supporter_info(Type, SupporterId)  of 
+    case sos_request_handler:get_supporter_info(Type, SupporterId,cb_context:user_id(Context))  of 
     {error, Error} -> 
         cb_context:setters(Context,
         [{fun cb_context:set_resp_error_msg/2, Error},

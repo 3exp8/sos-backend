@@ -5,7 +5,7 @@
 
 -export([
     calculate_color_type/1,
-    get_supporter_info/2,
+    get_supporter_info/3,
     get_suggester_info/1,
     is_joined_request/3,
     maybe_update_support_status/4,
@@ -421,22 +421,26 @@ is_joined_request(Type, Id, SosRequestInfo) ->
         end
     end,Supporters).
 
-get_supporter_info(?REQUESTER_TYPE_GROUP, Id) -> 
-   case  group_db:find(Id) of 
+get_supporter_info(?REQUESTER_TYPE_GROUP, GroupId, UserId) -> 
+   case  group_db:find(GroupId) of 
    notfound -> {error,notfound};
   #{
         name := Name,
         contact_info := ContactInfo
   } -> 
-    #{
-        id => Id,
-        type => ?REQUESTER_TYPE_GROUP,
-        name => Name,
-        contact_info => ContactInfo
-    }
-end;
+        case group_handler:is_group_member(GroupId, UserId)  of 
+            true ->
+                #{
+                    id => GroupId,
+                    type => ?REQUESTER_TYPE_GROUP,
+                    name => Name,
+                    contact_info => ContactInfo
+                };
+            false -> {error,is_not_group_member}
+        end
+    end;
 
-get_supporter_info(?REQUESTER_TYPE_USER, Id) -> 
+get_supporter_info(?REQUESTER_TYPE_USER, Id, Id) -> 
    case user_db:find(Id) of 
    notfound -> {error,notfound};
   #{
@@ -459,7 +463,7 @@ get_supporter_info(?REQUESTER_TYPE_USER, Id) ->
         {error,other}
 end;
 
-get_supporter_info(_, _) -> {error, not_support}.
+get_supporter_info(_, _, _) -> {error, not_support}.
 
 get_target_type(?OBJECT_TYPE_USER = TargetType,Id) -> 
     case user_db:find(Id) of 

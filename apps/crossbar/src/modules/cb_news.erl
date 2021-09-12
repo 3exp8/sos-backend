@@ -170,7 +170,8 @@ handle_get({Req, Context}, Id) ->
 -spec handle_put(cb_context:context()) -> cb_context:context().
 handle_put(Context) ->
     ReqJson = cb_context:req_json(Context),
-    Uuid = zt_util:get_uuid(),    CustomerId = cb_context:customer_id(Context),
+    Uuid = zt_util:get_uuid(),    
+    UserId = cb_context:user_id(Context),
     case  get_target_type(
                 wh_json:get_value(<<"target_type">>, ReqJson, <<>>),
                 wh_json:get_value(<<"target_id">>, ReqJson, <<>>)
@@ -185,7 +186,7 @@ handle_put(Context) ->
                 #{
                     first_name := FirstName, 
                     last_name := LastName
-                } = user_db:find(CustomerId),
+                } = user_db:find(UserId),
                 Info = #{
                     id => <<"news", Uuid/binary>>,
                     subject => wh_json:get_value(<<"subject">>, ReqJson,<<>>),
@@ -196,10 +197,10 @@ handle_put(Context) ->
                     medias => zt_util:to_map_list(wh_json:get_value(<<"medias">>, ReqJson,[])),
                     published_by_name => <<FirstName/binary," ",LastName/binary>>,
                     published_time => zt_util:now_to_utc_binary(os:timestamp()),
-                    published_by_id => CustomerId,
+                    published_by_id => UserId,
                     created_by_name => <<FirstName/binary," ",LastName/binary>>,
                     created_time => zt_util:now_to_utc_binary(os:timestamp()),
-                    created_by_id => CustomerId
+                    created_by_id => UserId
                 },
                 news_db:save(Info),
                 cb_context:setters(Context,
@@ -245,7 +246,7 @@ lager:debug("OtherType: ~p,OtherId: ~p~n",[OtherType,OtherId]),
 
 -spec handle_post(cb_context:context(), path_token()) -> cb_context:context().
 handle_post(Context, Id) ->
-    CustomerId = cb_context:customer_id(Context),
+    CustomerId = cb_context:user_id(Context),
     case news_db:find(Id) of 
         notfound -> 
             cb_context:setters(Context,
