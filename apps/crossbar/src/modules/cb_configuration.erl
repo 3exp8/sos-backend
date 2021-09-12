@@ -62,9 +62,9 @@ resource_exists(_Path) -> 'true'.
 authenticate(Context) -> 
 	authenticate_verb(Context, cb_context:req_verb(Context)).
 
-	authenticate_verb(_Context, ?HTTP_GET)  -> true;
+authenticate_verb(_Context, ?HTTP_GET)  -> true;
 
-	authenticate_verb(Context, _) ->
+authenticate_verb(Context, _) ->
 		Token = cb_context:auth_token(Context),
 		app_util:oauth2_authentic(Token, Context).
 
@@ -148,12 +148,14 @@ handle_get({Req, Context}) ->
   	Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
 	PropQueryJson = wh_json:to_proplist(QueryJson),
 	Configurations = configuration_db:find_by_conditions([], PropQueryJson, Limit, Offset),
-	lager:debug("Data ~p~n",[Configurations]),
-  	ProConfigurations = lists:map(
-			fun(Configuration) -> get_sub_fields(Configuration) end, Configurations),
+  	ProConfigurations = 
+	  lists:map(
+			fun(Configuration) -> get_sub_fields(Configuration) 
+	  end, Configurations),
   	{Req, cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_data/2, ProConfigurations}
-                                  ,{fun cb_context:set_resp_status/2, 'success'}])}.
+                                  ,{fun cb_context:set_resp_status/2, 'success'}
+							])}.
 
 
 % GET api/v1/configurations/id
@@ -164,25 +166,23 @@ handle_get({Req, Context}, ?PATH_SYSTEM) ->
   	Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
 	PropQueryJson = wh_json:to_proplist(QueryJson),
 	Configurations = configuration_db:find_by_conditions([{account_id,<<>>}], PropQueryJson, Limit, Offset),
-	lager:debug("Data ~p~n",[Configurations]),
   	ProConfigurations = lists:map(
-			fun(Configuration) -> get_system_sub_fields(Configuration) end, Configurations),
+			fun(Configuration) -> get_system_sub_fields(Configuration) 
+	end, Configurations),
   	{Req, cb_context:setters(Context
                                 ,[{fun cb_context:set_resp_data/2, ProConfigurations}
                                   ,{fun cb_context:set_resp_status/2, 'success'}])};
 
-handle_get({Req, Context}, _ConfigurationId) ->
-	_Role = cb_context:role(Context),
-	Configuration = configuration_db:find(_ConfigurationId),
+handle_get({Req, Context}, Id) ->
+	Configuration = configuration_db:find(Id),
 	case Configuration of 
 		notfound ->
-			lager:info(<<"NOT FOUND">>),
       		{Req, cb_context:setters(Context, [{fun cb_context:set_resp_error_msg/2, <<"Configuration Not Found">>},
                                 {fun cb_context:set_resp_status/2, <<"error">>},
                                 {fun cb_context:set_resp_error_code/2, 404}])};
     	_ -> 
       		PropConfiguration = get_sub_fields(Configuration),
-          		{Req, cb_context:setters(Context
+          	{Req, cb_context:setters(Context
                                    ,[{fun cb_context:set_resp_data/2, PropConfiguration}
                                      ,{fun cb_context:set_resp_status/2, 'success'}
                                     ])}    	
@@ -192,31 +192,46 @@ handle_get({Req, Context}, _ConfigurationId) ->
 %% PUT api/v1/configurations
 -spec handle_put(cb_context:context()) -> cb_context:context().
 handle_put(Context) ->
-	lager:debug("Handle PUT"),
 	ReqJson = cb_context:req_json(Context),
 	UserId = cb_context:user_id(Context),
-	ConfigurationDb = get_configuration_data(ReqJson,UserId),
-	Resp = get_sub_fields(ConfigurationDb),
-	cb_context:setters(Context
-                     ,[{fun cb_context:set_resp_data/2, Resp}
-                       ,{fun cb_context:set_resp_status/2, 'success'}
-                      ]).
+	case create_configuration_data(ReqJson,UserId) of 
+	{error, Error} -> 
+			cb_context:setters(Context, [{fun cb_context:set_resp_error_msg/2, Error},
+			{fun cb_context:set_resp_status/2, <<"error">>},
+			{fun cb_context:set_resp_error_code/2, 400}]);
+	ConfigurationDb -> 
+		Resp = get_sub_fields(ConfigurationDb),
+		cb_context:setters(Context
+						,[{fun cb_context:set_resp_data/2, Resp}
+						,{fun cb_context:set_resp_status/2, 'success'}
+						])
+	end.
 
 handle_post(Context, Id) ->
 	UserId = cb_context:user_id(Context),
-	Configuration = configuration_db:find(Id),
-	case Configuration of 
+	case configuration_db:find(Id) of 
 		notfound ->
-			lager:info(<<"NOT FOUND">>),
-      		cb_context:setters(Context, [{fun cb_context:set_resp_error_msg/2, <<"Configuration Not Found">>},
+      		cb_context:setters(Context, [
+				  				{fun cb_context:set_resp_error_msg/2, <<"Configuration Not Found">>},
                                 {fun cb_context:set_resp_status/2, <<"error">>},
-                                {fun cb_context:set_resp_error_code/2, 404}]);
-		_ ->
+                                {fun cb_context:set_resp_error_code/2, 404}
+							]);
+		#{
+			value := ValueDb,
+			content_type := ContentTypeDb
+		} = InfoDb ->
 			ReqJson =  cb_context:req_json(Context),
-			ConfigurationInfo = update_configuration(ReqJson,Configuration),
-			NewConfiguration = maps:merge(ConfigurationInfo, #{updated_by_id => UserId}),
-			configuration_db:save(NewConfiguration),
-			RespData = get_sub_fields(NewConfiguration),
+			Value = wh_json:get_value(<<"value">>,ReqJson,ValueDb),
+			ContentType = wh_json:get_value(<<"content_type">>,ReqJson,ContentTypeDb),
+			NewInfo = 
+				maps:merge(InfoDb,#{
+							value => Value,
+							content_type => ContentType,
+							updated_by_id => UserId,
+							updated_time_dt => zt_datetime:get_now()
+				}),
+			configuration_db:save(NewInfo),
+			RespData = get_sub_fields(NewInfo),
     		cb_context:setters(Context
                   ,[{fun cb_context:set_resp_data/2, RespData}
                     ,{fun cb_context:set_resp_status/2, 'success'}
@@ -224,60 +239,47 @@ handle_post(Context, Id) ->
 	end.  
 	  
 handle_delete(Context, Id) ->
-	ConfigurationInfo = configuration_db:find(Id),
-	lager:debug("~n Find: ~p",[ConfigurationInfo]),
-	case ConfigurationInfo of 
+	case configuration_db:find(Id) of 
 		notfound ->
       		cb_context:setters(Context, [{fun cb_context:set_resp_error_msg/2, <<"Configuration Not Found">>},
                                 {fun cb_context:set_resp_status/2, <<"error">>},
                                 {fun cb_context:set_resp_error_code/2, 404}]);
     	_ -> 
-			Success = configuration_db:del_by_id(Id),
-			lager:debug("~n state ~p",[Success]),
-				RespData =#{
-					updated_time_dt => zt_datetime:get_now(),
-					updated_by => <<"account123456">>
-				},
-				cb_context:setters(Context
+			configuration_db:del_by_id(Id),
+			RespData = #{
+					status => <<"success">>,
+					id => Id
+			},
+			cb_context:setters(Context
                     ,[{fun cb_context:set_resp_data/2, RespData}
                      ,{fun cb_context:set_resp_status/2, 'success'}
-					])
-		
+			])
 	end.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Internal Function
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-update_configuration(ReqJson, Configuration) ->
-	Type  = maps:get(type,Configuration,<<>>),
-	Group = maps:get(group,Configuration,<<>>),
-	Key   = maps:get(key,Configuration,<<>>),
-	Value = wh_json:get_value(<<"value">>,ReqJson,maps:get(value,Configuration,<<>>)),
-	Content_type = wh_json:get_value(<<"content_type">>,ReqJson,maps:get(content_type,Configuration,<<>>)),
-	UpdateTime =  zt_datetime:get_now(),	
-	maps:merge(Configuration,
-			#{
-				type => Type,
-				group => Group,
-				key => Key,
-				value => Value,
-				content_type => Content_type,
-				updated_time_dt => UpdateTime
-			}).
 
-get_configuration_data(ReqJson, UserId) ->
-	CreatedTime = zt_datetime:get_now(),
+create_configuration_data(ReqJson, UserId) ->
+	Type = wh_json:get_value(<<"type">>, ReqJson, <<>>),
+	Group = wh_json:get_value(<<"group">>,ReqJson,<<>>),
+	Key = wh_json:get_value(<<"key">>,ReqJson,<<>>),
+
+	case configuration_handler:is_key_exist(Type, Group, Key) of 
+		false -> 
 			ConfigurationInfo = get_configuration_info(ReqJson),
 			Uuid = zt_util:get_uuid(),
-			ConfigurationId = <<"configuration",Uuid/binary>>,
-			ConfigurationDb = maps:merge(ConfigurationInfo, #{
-				id => ConfigurationId, 
-				created_by => UserId,                               
-				updated_by => UserId,
-				updated_time_dt => CreatedTime,
-				created_time_dt => CreatedTime
+			ConfigurationDb = 
+				maps:merge(ConfigurationInfo, #{
+					id => <<"configuration",Uuid/binary>>, 
+					created_by => UserId,                               
+					created_time_dt => zt_datetime:get_now()
 			}),
-	configuration_db:save(ConfigurationDb),
-	ConfigurationDb.
+			configuration_db:save(ConfigurationDb);
+		OtherData ->
+			lager:error("error when create conf Type: ~p, Group: ~p, Key: ~p, OtherData: ~p ~n",[Type, Group, Key,OtherData]), 
+			{error, existed}
+	end.
 
 get_configuration_info([]) -> #{};
 
