@@ -98,7 +98,12 @@ authenticate(Context) ->
     end.
 
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
-authenticate(_Context, ?PATH_SEARCH) -> true;
+authenticate(Context, ?PATH_SEARCH) -> 
+    Token = cb_context:auth_token(Context),
+    case app_util:oauth2_authentic(Token, Context) of 
+        false -> true;
+        Res -> Res
+    end;
 
 authenticate(Context, Path) ->
     authenticate_verb(Context, Path, cb_context:req_verb(Context)).
@@ -261,7 +266,7 @@ handle_post(Context, ?PATH_SEARCH) ->
         %Unit = proplists:get_value(<<"unit">>, ReqJson, <<>>),
         Unit = <<"km">>,
         % Distance = zt_util:to_str(proplists:get_value(<<"distance">>, Data, <<"5">>)S),
-        SortCondsList = wh_json:get_value(<<"sorts">>, ReqJson, []),
+        SortCondsList = wh_json:get_value(<<"sorts">>, ReqJson, [[{<<"sort_distance">>,asc}],[{<<"sort_priority">>,asc}]]),
         SortConds = sos_request_handler:deformat_sorts(SortCondsList, zt_util:to_bin(CurrentLocation), Unit),
         % lager:info("SortConds: ~p ~n",[SortConds]),
         Conds = sos_request_handler:build_search_conditions(CurrentLocation, ReqJson),
@@ -275,13 +280,12 @@ handle_post(Context, ?PATH_SEARCH) ->
         UserId = cb_context:user_id(Context),
     
         FilteredGroups = group_handler:find_groups_by_user(UserId),
-
         FilteredRequests = 
-                lists:map(fun(Info) -> 
-                    NewInfo = sos_request_handler:maybe_filter_bookmark(?OBJECT_TYPE_USER, UserId, Info),
-                    NewInfo2 = sos_request_handler:maybe_filter_bookmark_by_group(FilteredGroups, NewInfo),
-                    get_sub_fields(NewInfo2,[bookmarks])
-                end,Requests),
+            lists:map(fun(Info) -> 
+                NewInfo = sos_request_handler:maybe_filter_bookmark(?OBJECT_TYPE_USER, UserId, Info),
+                NewInfo2 = sos_request_handler:maybe_filter_bookmark_by_group(FilteredGroups, NewInfo),
+                get_sub_fields(NewInfo2,[bookmarks])
+            end,Requests),
 
         PropsRequestsWithTotal = 
                 #{
@@ -378,11 +382,10 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
     
     handle_post(Context, Id, ?PATH_SUGGEST) ->
         ReqJson = cb_context:req_json(Context),
-        TargetType = wh_json:get_value(<<"target_type">>, ReqJson),
-        TargetId = wh_json:get_value(<<"target_id">>, ReqJson),
-       UserId = cb_context:user_id(Context),
         case sos_request_db:find(Id) of
             #{} = Info ->
+                TargetType = wh_json:get_value(<<"target_type">>, ReqJson),
+                TargetId = wh_json:get_value(<<"target_id">>, ReqJson),
                 case sos_request_handler:get_target_type(TargetType, TargetId) of 
                     {error, Error} ->
                         cb_context:setters(Context,[
@@ -392,6 +395,7 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                         ]);
 
                     {_, _, TargetName} ->
+                        UserId = cb_context:user_id(Context),
                         SuggesterInfo = sos_request_handler:get_suggester_info(UserId),
                         SuggestInfo = 
                             maps:merge(SuggesterInfo, #{
@@ -426,7 +430,8 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
         TargetId = wh_json:get_value(<<"bookmarker_id">>, ReqJson),
         case sos_request_db:find(Id) of
             #{} = Info ->
-                case sos_request_handler:get_target_type(TargetType, TargetId) of 
+                UserId = cb_context:user_id(Context),
+                case sos_request_handler:get_my_target_type(TargetType, TargetId, UserId) of 
                     {error, Error} ->
                         cb_context:setters(Context,[
                             {fun cb_context:set_resp_error_msg/2, Error},
@@ -583,7 +588,7 @@ get_info(ReqJson, Context) ->
       subject => Subject,
       priority_type => PriorityType,
       description => Description,
-      support_types => SupportTypes,
+      support_types => filter_support_types(SupportTypes),
       color_info => sos_request_handler:calculate_color_type(SupportTypes),
       location => Location,
       address_info => AddressInfo,
@@ -595,6 +600,10 @@ get_info(ReqJson, Context) ->
       created_time => zt_datetime:get_now()
      }.
 
+filter_support_types(SupportTypesList) -> 
+        lists:map(fun(SupportTypeMap) -> 
+            maps:with([<<"type">>,<<"name">>],SupportTypeMap)
+        end,SupportTypesList).
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%  INTERNAL FUNCTIONS  %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%

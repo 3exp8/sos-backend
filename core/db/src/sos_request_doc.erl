@@ -33,6 +33,7 @@ sumo_wakeup(Doc) ->
     bookmarks =>  maps:get(bookmarks, Doc, []),
     medias =>  maps:get(medias, Doc, []),
     location =>  maps:get(location, Doc, <<"0,0">>),
+    distance => maps:get(x_distance, Doc, 0.0),
     description =>  maps:get(description, Doc, <<>>),
     address_info =>  maps:get(address_info, Doc, #{}),
     contact_info =>  maps:get(contact_info, Doc, #{}),

@@ -454,6 +454,7 @@ permissions() ->
 get_info(ReqJson,UserId) -> 
     Type = zt_util:normalize_string(wh_json:get_value(<<"type">>, ReqJson)),
     AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
+
     CreateTime  =  zt_datetime:get_now(),
     #{
         type => Type,
@@ -462,7 +463,7 @@ get_info(ReqJson,UserId) ->
         avatar => wh_json:get_value(<<"avatar">>, ReqJson, <<>>),
         address_info => AddressInfo,
         contact_info => zt_util:to_map(wh_json:get_value(<<"contact_info">>, ReqJson,[])),
-        detail_info => zt_util:to_map(wh_json:get_value(<<"detail_info">>, ReqJson,[])),
+        detail_info => filter_detail_info(zt_util:to_map(wh_json:get_value(<<"detail_info">>, ReqJson,[]))),
         admin_id => <<>>,
         members => [],
         verify_status => <<"pending">>, 
@@ -472,6 +473,19 @@ get_info(ReqJson,UserId) ->
         created_by => UserId,
         updated_by => UserId
     }.
+
+filter_detail_info(DetailInfo) -> 
+    SupportTypesList = maps:get(support_types, DetailInfo,[]),
+    SupportTypesFiltered = 
+        lists:map(fun(SupportTypeProps) -> 
+            lager:debug("SupportTypeProps: ~p~n",[SupportTypeProps]),
+            SupportTypeMap = maps:from_list(SupportTypeProps),
+            maps:with([<<"type">>,<<"name">>],SupportTypeMap)
+        end,SupportTypesList),
+    maps:merge(DetailInfo, #{
+        support_types => SupportTypesFiltered
+    }).
+
 
 validate_request(Context, ?HTTP_GET) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
