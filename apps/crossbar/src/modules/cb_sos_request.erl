@@ -378,11 +378,10 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
     
     handle_post(Context, Id, ?PATH_SUGGEST) ->
         ReqJson = cb_context:req_json(Context),
-        TargetType = wh_json:get_value(<<"target_type">>, ReqJson),
-        TargetId = wh_json:get_value(<<"target_id">>, ReqJson),
-       UserId = cb_context:user_id(Context),
         case sos_request_db:find(Id) of
             #{} = Info ->
+                TargetType = wh_json:get_value(<<"target_type">>, ReqJson),
+                TargetId = wh_json:get_value(<<"target_id">>, ReqJson),
                 case sos_request_handler:get_target_type(TargetType, TargetId) of 
                     {error, Error} ->
                         cb_context:setters(Context,[
@@ -392,6 +391,7 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                         ]);
 
                     {_, _, TargetName} ->
+                        UserId = cb_context:user_id(Context),
                         SuggesterInfo = sos_request_handler:get_suggester_info(UserId),
                         SuggestInfo = 
                             maps:merge(SuggesterInfo, #{
@@ -426,7 +426,8 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
         TargetId = wh_json:get_value(<<"bookmarker_id">>, ReqJson),
         case sos_request_db:find(Id) of
             #{} = Info ->
-                case sos_request_handler:get_target_type(TargetType, TargetId) of 
+                UserId = cb_context:user_id(Context),
+                case sos_request_handler:get_my_target_type(TargetType, TargetId, UserId) of 
                     {error, Error} ->
                         cb_context:setters(Context,[
                             {fun cb_context:set_resp_error_msg/2, Error},

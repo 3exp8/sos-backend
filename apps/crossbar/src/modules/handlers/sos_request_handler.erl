@@ -12,6 +12,7 @@
     maybe_add_bookmarks/2,
     maybe_remove_bookmarks/3,
     get_target_type/2,
+    get_my_target_type/3,
     validate_bookmarker_type/2,
     validate_bookmarker_id/2,
     validate_suggest_target_type/2,
@@ -328,8 +329,9 @@ maybe_update_request_status(#{
     UserId =  cb_context:user_id(Context),
     RequesterInfo = zt_util:map_keys_to_atom(RequesterInfoRaw),
     RequesterId = maps:get(id,RequesterInfo,<<>>),
+    RequesterType = maps:get(type,RequesterInfo,<<>>),
     Role = cb_context:role(Context),
-    case check_permission_update_request_status(RequesterId,UserId, Role) of 
+    case check_permission_update_request_status(RequesterType,RequesterId, UserId, Role) of 
         false -> {error,forbidden};
         true -> 
             NewStatus = wh_json:get_value(<<"status">>, ReqJson,<<>>),
@@ -373,11 +375,14 @@ add_status_history(StatusInfo, undefined) ->
 add_status_history(StatusInfo, CurrentStatusHistory) when is_list(CurrentStatusHistory) -> 
     [StatusInfo|CurrentStatusHistory].
 
-%todo: review role
-check_permission_update_request_status(RequesterId, RequesterId, _) -> true;
-check_permission_update_request_status(_, _, ?USER_ROLE_OPERATOR) -> true;
-check_permission_update_request_status(_, _, ?USER_ROLE_ADMIN) -> true;
-check_permission_update_request_status(_, _, _) -> false.
+
+check_permission_update_request_status(?OBJECT_TYPE_USER, RequesterId, RequesterId, _) -> true;
+check_permission_update_request_status(_, _, _, ?USER_ROLE_OPERATOR) -> true;
+check_permission_update_request_status(_, _, _, ?USER_ROLE_ADMIN) -> true;
+check_permission_update_request_status(?OBJECT_TYPE_GROUP, GroupId, UserId, _) -> 
+    group_handler:is_group_member(GroupId, UserId);
+
+check_permission_update_request_status(_, _, _, _) -> false.
 
 % Supporter update their task
 maybe_update_support_status(Type, Id, _SosRequestInfo, <<>>) -> 
@@ -485,6 +490,22 @@ get_target_type(?OBJECT_TYPE_GROUP = TargetType,GroupId) ->
         } -> 
             {TargetType, GroupId,GroupName}
     end.
+
+
+get_my_target_type(?OBJECT_TYPE_USER = TargetType,Id,Id) -> 
+    get_target_type(TargetType,Id);
+
+get_my_target_type(?OBJECT_TYPE_GROUP = TargetType, GroupId, UserId) ->
+    case group_handler:is_group_member(GroupId, UserId)  of 
+        true ->
+            get_target_type(TargetType, GroupId);
+        false -> 
+             {error, forbidden}
+    end;
+
+
+get_my_target_type(_, _, _) -> {error, forbidden}.
+
 
 build_search_conditions(CurLocation, ReqJson) -> 
     PriorityType = wh_json:get_value(<<"priority_type">>, ReqJson, <<>>),
