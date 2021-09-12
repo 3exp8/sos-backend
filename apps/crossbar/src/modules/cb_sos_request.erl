@@ -98,7 +98,12 @@ authenticate(Context) ->
     end.
 
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
-authenticate(_Context, ?PATH_SEARCH) -> true;
+authenticate(Context, ?PATH_SEARCH) -> 
+    Token = cb_context:auth_token(Context),
+    case app_util:oauth2_authentic(Token, Context) of 
+        false -> true;
+        Res -> Res
+    end;
 
 authenticate(Context, Path) ->
     authenticate_verb(Context, Path, cb_context:req_verb(Context)).
@@ -275,13 +280,12 @@ handle_post(Context, ?PATH_SEARCH) ->
         UserId = cb_context:user_id(Context),
     
         FilteredGroups = group_handler:find_groups_by_user(UserId),
-
         FilteredRequests = 
-                lists:map(fun(Info) -> 
-                    NewInfo = sos_request_handler:maybe_filter_bookmark(?OBJECT_TYPE_USER, UserId, Info),
-                    NewInfo2 = sos_request_handler:maybe_filter_bookmark_by_group(FilteredGroups, NewInfo),
-                    get_sub_fields(NewInfo2,[bookmarks])
-                end,Requests),
+            lists:map(fun(Info) -> 
+                NewInfo = sos_request_handler:maybe_filter_bookmark(?OBJECT_TYPE_USER, UserId, Info),
+                NewInfo2 = sos_request_handler:maybe_filter_bookmark_by_group(FilteredGroups, NewInfo),
+                get_sub_fields(NewInfo2,[bookmarks])
+            end,Requests),
 
         PropsRequestsWithTotal = 
                 #{

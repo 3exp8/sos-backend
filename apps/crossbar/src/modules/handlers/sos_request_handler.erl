@@ -90,19 +90,10 @@ maybe_filter_bookmark(ObjecType, ObjectId, #{bookmarks := Bookmarks} = SosReques
     end.
 
 maybe_filter_bookmark_by_group(Groups, #{bookmarks := Bookmarks} = SosRequestInfo) ->
+    lager:debug("maybe_filter_bookmark_by_group Groups: ~p ~n",[Groups]),
     GroupBookmarks = 
     lists:filtermap(fun(#{id := GroupId}) ->
-        case find_bookmark(Bookmarks, ?OBJECT_TYPE_GROUP, GroupId) of 
-            {true, BookmarkInfo} ->
-                    NewSosRequestInfo = 
-                        maps:merge(SosRequestInfo, #{
-                            is_group_bookmarked => true,
-                            bookmark_info => BookmarkInfo
-                        }),
-                    {true, NewSosRequestInfo};
-            false -> fasle
-        end
-
+        find_bookmark(Bookmarks, ?OBJECT_TYPE_GROUP, GroupId)
     end,Groups),
     case length(GroupBookmarks) of 
         0 -> not_found_group_bookmark(SosRequestInfo);
@@ -118,10 +109,12 @@ find_bookmark([], Type, Id) -> false;
 find_bookmark([Info|OtherBookmars], Type, Id) -> 
       case Info of 
       #{
-        <<"id">> := Id 
+        <<"bookmarker_id">> := Id 
       } ->  {true, Info};
       _ -> find_bookmark(OtherBookmars, Type, Id)
-    end.
+    end;
+find_bookmark(_, _, _) -> false.
+
 
 change_request_status(?SOS_REQUEST_STATUS_OPEN,?SOS_REQUEST_STATUS_VERIFIED) -> ?SOS_REQUEST_STATUS_VERIFIED;
 change_request_status(?SOS_REQUEST_STATUS_REOPEN,?SOS_REQUEST_STATUS_VERIFIED) -> ?SOS_REQUEST_STATUS_VERIFIED;
