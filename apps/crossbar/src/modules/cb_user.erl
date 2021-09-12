@@ -273,14 +273,30 @@ handle_get({Req, Context}, ?PATH_BOOKMARK) ->
 handle_get({Req, Context}, ?PATH_SUGGEST) ->
   UserId = cb_context:user_id(Context),
   QueryJson = cb_context:query_string(Context),
-          Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
-          Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
-          PropQueryJson = wh_json:to_proplist(QueryJson),
-          SosRequests = 
+  Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
+  Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
+  PropQueryJson = wh_json:to_proplist(QueryJson),
+  Groups = group_handler:find_groups_by_user(UserId),
+
+  GroupIds = 
+    lists:map(fun(#{id := GroupId}) -> 
+      GroupId
+    end,Groups),
+lager:debug("GroupIds: ~p~n",[GroupIds]),
+  SosRequests = 
               sos_request_db:find_by_conditions([
-                  {<<"suggest_info.target_type">>,?OBJECT_TYPE_USER},
-                  {<<"suggest_info.target_id">>,UserId}
-              ], PropQueryJson, Limit, Offset),
+                {'or',[
+                  {'and',[
+                      {<<"suggest_info.target_type">>,?OBJECT_TYPE_USER},
+                      {<<"suggest_info.target_id">>,UserId}
+                  ]},
+                  {
+                    'and',[
+                      {<<"suggest_info.target_type">>,?OBJECT_TYPE_GROUP},
+                      {<<"suggest_info.target_id">>,'in',GroupIds}
+                  ]}
+              ]
+          }], PropQueryJson, Limit, Offset),
         {Req,
          cb_context:setters(Context,
                             [{fun cb_context:set_resp_data/2, SosRequests},

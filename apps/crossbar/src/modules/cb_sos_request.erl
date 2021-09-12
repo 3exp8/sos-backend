@@ -588,7 +588,7 @@ get_info(ReqJson, Context) ->
       subject => Subject,
       priority_type => PriorityType,
       description => Description,
-      support_types => SupportTypes,
+      support_types => filter_support_types(SupportTypes),
       color_info => sos_request_handler:calculate_color_type(SupportTypes),
       location => Location,
       address_info => AddressInfo,
@@ -600,6 +600,10 @@ get_info(ReqJson, Context) ->
       created_time => zt_datetime:get_now()
      }.
 
+filter_support_types(SupportTypesList) -> 
+        lists:map(fun(SupportTypeMap) -> 
+            maps:with([<<"type">>,<<"name">>],SupportTypeMap)
+        end,SupportTypesList).
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%  INTERNAL FUNCTIONS  %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%
