@@ -24,7 +24,7 @@
 sumo_wakeup(Doc) ->
   #{
     id =>  maps:get(id, Doc, <<>>),
-    type => maps:get(type, Doc, <<>>),
+    type => zt_util:nvl(maps:get(type, Doc),<<>>),
     subject =>  maps:get(subject, Doc, <<>>),
     priority_type =>  maps:get(priority_type, Doc, <<>>),
     color_info =>  maps:get(color_info, Doc, #{}),

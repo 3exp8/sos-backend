@@ -35,5 +35,10 @@
 -define(SOS_REQUEST_SUGGEST_STATUS_REJECTED,<<"rejected">>).
 % End SOS Request suggest status list %
 
+-define(SOS_REQUEST_TYPE_ASK,<<"ask">>).
+-define(SOS_REQUEST_TYPE_OFFER,<<"offer">>).
+-define(SOS_REQUEST_TYPES, [?SOS_REQUEST_TYPE_ASK,?SOS_REQUEST_TYPE_OFFER]).
+
+
 -define(APP_HRL, 'true').
 -endif.

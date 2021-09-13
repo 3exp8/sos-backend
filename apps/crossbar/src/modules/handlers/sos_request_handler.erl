@@ -17,6 +17,7 @@
     validate_bookmarker_id/2,
     validate_suggest_target_type/2,
     validate_suggest_target_id/2,
+    validate_request_type/2,
     validate_requester_type/2,
     validate_share_phone_number_update/2,
     validate_share_phone_number/2,
@@ -41,23 +42,23 @@
 
 
 
-is_owner_or_admin(?USER_ROLE_ADMIN, UserId, Info) -> true;
-is_owner_or_admin(?USER_ROLE_OPERATOR, UserId, Info) -> true;
+is_owner_or_admin(?USER_ROLE_ADMIN, _UserId, _Info) -> true;
+is_owner_or_admin(?USER_ROLE_OPERATOR, _UserId, _Info) -> true;
 is_owner_or_admin(_,UserId, Info) -> 
     is_owner(UserId, Info).
 
 is_owner(<<>>, _) -> false;
 is_owner(UserId, #{
+    requester_type := ?OBJECT_TYPE_USER,
     requester_info := #{
-        <<"id">> := UserId,
-        <<"type">> := ?OBJECT_TYPE_USER
+        <<"id">> := UserId
     }
 }) -> true;
 
 is_owner(UserId, #{
+    requester_type := ?OBJECT_TYPE_GROUP,
     requester_info := #{
-        <<"id">> := RequesterGroupId,
-        <<"type">> := ?OBJECT_TYPE_GROUP
+        <<"id">> := RequesterGroupId
     }
 }) -> 
     %TODO: implement group id
@@ -103,7 +104,7 @@ maybe_filter_bookmark_by_group(Groups, #{bookmarks := Bookmarks} = SosRequestInf
             })
     end.
     
-find_bookmark([], Type, Id) -> false;
+find_bookmark([], _Type, _Id) -> false;
 
 find_bookmark([Info|OtherBookmars], Type, Id) -> 
       case Info of 
@@ -504,6 +505,7 @@ get_my_target_type(_, _, _) -> {error, forbidden}.
 
 
 build_search_conditions(CurLocation, ReqJson) -> 
+    RequetTypes = wh_json:get_value(<<"type">>, ReqJson, <<>>),
     PriorityType = wh_json:get_value(<<"priority_type">>, ReqJson, <<>>),
     SupportTypes = wh_json:get_value(<<"support_types">>, ReqJson, <<>>),
     ObjectStatus = wh_json:get_value(<<"object_status">>, ReqJson, <<>>),
@@ -511,6 +513,7 @@ build_search_conditions(CurLocation, ReqJson) ->
     Keyword = wh_json:get_value(<<"keyword">>, ReqJson, <<>>),
     Distance = zt_util:to_integer(wh_json:get_value(<<"distance">>, ReqJson, 10)),
     SearchRequests = [
+        {types,RequetTypes},
         {priority_type,PriorityType},
         {support_types,SupportTypes},
         {object_status,ObjectStatus},
@@ -527,9 +530,13 @@ build_search_conditions(CurLocation, ReqJson) ->
 
 build_condition(_,<<>>) -> ignore;
 
+build_condition(types, Val) -> 
+    Vals = zt_util:split_string(Val),
+    {type,'in',Vals};
+
 build_condition(priority_type, Val) -> 
     Vals = zt_util:split_string(Val),
-    {priority_type,'in',Vals};
+    {<<"color_info.priority">>,'in',Vals};
 
 build_condition(support_types, Val) -> 
     Vals = zt_util:split_string(Val),
@@ -594,7 +601,7 @@ get_requester_info(?REQUESTER_TYPE_GROUP, Context) ->
             {?REQUESTER_TYPE_GROUP,maps:with([id,type,name],GroupInfo)}
     end;
 
-get_requester_info(_, Context) ->  {?REQUESTER_TYPE_GUEST,#{}}.
+get_requester_info(_, _Context) ->  {?REQUESTER_TYPE_GUEST,#{}}.
 
 get_suggester_info(Id) ->
     case user_db:find(Id) of
@@ -633,6 +640,24 @@ validate_suggest_target_id(ReqJson, Context) ->
     Key = <<"target_id">>,
     Val = wh_json:get_value(Key, ReqJson, <<>>),
     api_util:check_val(Context, Key, Val).
+
+-spec validate_request_type(api_binary(), cb_context:context()) -> cb_context:context().
+validate_request_type(ReqJson, Context) ->
+  Key = <<"request_type">>,
+  case wh_json:get_value(Key, ReqJson, <<>>) of
+    <<>> -> Context;
+    Val -> 
+        validate_request_type_value(Key, Val, Context)
+  end.
+
+-spec validate_request_type_value(binary(), binary(), cb_context:context()) -> cb_context:context().
+validate_request_type_value(Key, Val, Context) ->
+    case lists:member(Val, ?SOS_REQUEST_TYPES) of
+        true -> Context;
+        _ ->
+            Vals = zt_util:arr_to_str(?SOS_REQUEST_TYPES),
+            api_util:validate_error(Context, Key, <<"invalid">>, <<"Invalid ",Key/binary,". Value must be ",Vals/binary>>)
+    end.
 
 -spec validate_requester_type(api_binary(), cb_context:context()) -> cb_context:context().
 validate_requester_type(ReqJson, Context) ->

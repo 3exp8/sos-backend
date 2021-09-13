@@ -148,17 +148,17 @@ authorize_verb(_Context, ?HTTP_PUT) ->
 authorize(Context, Path) ->
     authorize_verb(Context, Path, cb_context:req_verb(Context)).
 
-authorize_verb(Context, Path, ?HTTP_GET) ->
+authorize_verb(Context, _Path, ?HTTP_GET) ->
     Role = cb_context:role(Context),
     authorize_util:check_role(Role,?USER_ROLE_ANY);
 
 authorize_verb(_Context, ?PATH_SEARCH, ?HTTP_POST) -> true;
 
-authorize_verb(Context, Path, ?HTTP_POST) ->
+authorize_verb(Context, _Path, ?HTTP_POST) ->
     Role = cb_context:role(Context),
     authorize_util:check_role(Role,?USER_ROLE_USER_GE);
 
-authorize_verb(Context, Path, ?HTTP_DELETE) ->
+authorize_verb(Context, _Path, ?HTTP_DELETE) ->
     Role = cb_context:role(Context),
     authorize_util:check_role(Role,?USER_ROLE_USER_GE).
 
@@ -276,7 +276,7 @@ handle_post(Context, ?PATH_SEARCH) ->
         Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
         lager:debug("search final conditions: ~p~n",[Conds]),
         {Total, Requests} = sos_request_db:find_count_by_conditions(Conds, SortConds, Limit, Offset),
-        lager:info("Total Request: ~p ~n",[Requests]),
+        lager:info("Total Request  ~p found ~n",[Total]),
         UserId = cb_context:user_id(Context),
     
         FilteredGroups = group_handler:find_groups_by_user(UserId),
@@ -497,14 +497,14 @@ handle_post(Context, Id,?PATH_STATUS) ->
                     ]);
                 {error,forbidden} -> 
                     Context2 = api_util:validate_error(Context, <<"status">>, <<"forbidden">>, forbidden),
-                    cb_context:setters(Context,[
+                    cb_context:setters(Context2,[
                         {fun cb_context:set_resp_error_msg/2, forbidden},
                         {fun cb_context:set_resp_status/2, <<"error">>},
                         {fun cb_context:set_resp_error_code/2, 403}
                     ]);
                 {error,Error} -> 
                     Context2 = api_util:validate_error(Context, <<"status">>, <<"invalid">>, Error),
-                    cb_context:setters(Context,[
+                    cb_context:setters(Context2,[
                         {fun cb_context:set_resp_error_msg/2, Error},
                         {fun cb_context:set_resp_status/2, <<"error">>},
                         {fun cb_context:set_resp_error_code/2, 400}
@@ -585,6 +585,7 @@ get_info(ReqJson, Context) ->
     Medias = zt_util:to_map_list(wh_json:get_value(<<"medias">>, ReqJson, [])),
     ObjectStatus = zt_util:to_map_list(wh_json:get_value(<<"requester_object_status">>, ReqJson, [])),
     #{
+      type => wh_json:get_value(<<"type">>, ReqJson, ?SOS_REQUEST_TYPE_ASK),
       subject => Subject,
       priority_type => PriorityType,
       description => Description,
@@ -616,7 +617,8 @@ validate_request(Context, ?HTTP_PUT) ->
     Context1 = cb_context:setters(Context
                                   ,[{fun cb_context:set_resp_status/2, 'success'}]),	
     ValidateFuns = [
-                     fun sos_request_handler:validate_requester_type/2
+                    fun sos_request_handler:validate_request_type/2
+                    ,fun sos_request_handler:validate_requester_type/2
                     ,fun sos_request_handler:validate_share_phone_number/2
                    ],
     lists:foldl(fun(F, C) ->
@@ -677,7 +679,7 @@ validate_request(Id, ?PATH_SUPPORT, Context, ?HTTP_POST) ->
                 end,
     Context1,ValidateFuns);
 
-validate_request(Id, ?PATH_SUGGEST, Context, ?HTTP_POST) ->
+validate_request(_Id, ?PATH_SUGGEST, Context, ?HTTP_POST) ->
     ReqJson = cb_context:req_json(Context),
     Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
     ValidateFuns = [
@@ -689,7 +691,7 @@ validate_request(Id, ?PATH_SUGGEST, Context, ?HTTP_POST) ->
                 end,
     Context1,ValidateFuns);
 
-validate_request(Id, ?PATH_BOOKMARK, Context, ?HTTP_POST) ->
+validate_request(_Id, ?PATH_BOOKMARK, Context, ?HTTP_POST) ->
     ReqJson = cb_context:req_json(Context),
     Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
     ValidateFuns = [
@@ -702,7 +704,7 @@ validate_request(Id, ?PATH_BOOKMARK, Context, ?HTTP_POST) ->
                 end,
     Context1,ValidateFuns);
 
-validate_request(Id, ?PATH_STATUS, Context, ?HTTP_POST) ->
+validate_request(_Id, ?PATH_STATUS, Context, ?HTTP_POST) ->
     ReqJson = cb_context:req_json(Context),
     Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
     ValidateFuns = [
@@ -726,6 +728,3 @@ get_sub_fields(Info,OtherFields) when is_list(OtherFields) ->
 get_sub_fields(Info,OtherFieldType) -> 
    Field = zt_util:to_atom(OtherFieldType),
    get_sub_fields(Info,Field).
-
-get_sub_fields(Info) ->
-    get_sub_fields(Info,[]).
