@@ -643,7 +643,7 @@ validate_suggest_target_id(ReqJson, Context) ->
 
 -spec validate_request_type(api_binary(), cb_context:context()) -> cb_context:context().
 validate_request_type(ReqJson, Context) ->
-  Key = <<"request_type">>,
+  Key = <<"type">>,
   case wh_json:get_value(Key, ReqJson, <<>>) of
     <<>> -> Context;
     Val -> 
