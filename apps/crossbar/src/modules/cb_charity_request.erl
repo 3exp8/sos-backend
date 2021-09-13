@@ -157,7 +157,7 @@ handle_get({Req, Context}) ->
     Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
     Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>,QueryJson,?DEFAULT_OFFSET)),
     PropQueryJson = wh_json:to_proplist(QueryJson),
-    CharityRequests = sos_request_db:find_by_conditions([{<<"type">>, <<"offer">>}], PropQueryJson, Limit, Offset),
+    CharityRequests = sos_request_db:find_by_conditions([{<<"type">>, ?SOS_REQUEST_TYPE_OFFER}], PropQueryJson, Limit, Offset),
     {Req,
      cb_context:setters(Context,
                         [{fun cb_context:set_resp_data/2, CharityRequests},
@@ -166,7 +166,7 @@ handle_get({Req, Context}) ->
 -spec handle_get(req_ctx(), path_token()) -> req_ctx().
 handle_get({Req, Context}, Id) ->
     case sos_request_db:find(Id) of
-        #{type := <<"offer">>} = Db  ->
+        #{type := ?SOS_REQUEST_TYPE_OFFER} = Db  ->
             {Req,
              cb_context:setters(Context,
                                 [{fun cb_context:set_resp_data/2, Db},
@@ -198,10 +198,10 @@ handle_put(Context) ->
         BaseInfo = get_info(ReqJson, Context),
         Info = maps:merge(BaseInfo, #{
             id => Id,
+            type => ?SOS_REQUEST_TYPE_OFFER,
             status => ?SOS_REQUEST_STATUS_OPEN,
             requester_type => RequesterType,
-            requester_info => RequesterInfo,
-            type => <<"offer">>
+            requester_info => RequesterInfo
         }),
         sos_request_db:save(Info),
         cb_context:setters(Context,
@@ -230,7 +230,7 @@ handle_post(Context, ?PATH_SEARCH) ->
         Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
         Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
         lager:debug("search final conditions: ~p~n",[Conds]),
-        {Total, Requests} = sos_request_db:find_count_by_conditions([{<<"type">>, <<"offer">>} | Conds], SortConds, Limit, Offset),
+        {Total, Requests} = sos_request_db:find_count_by_conditions([{<<"type">>, ?SOS_REQUEST_TYPE_OFFER} | Conds], SortConds, Limit, Offset),
         lager:info("Total Request: ~p ~n",[Requests]),
         UserId = cb_context:user_id(Context),
     
@@ -263,7 +263,9 @@ handle_post(Context, ?PATH_SEARCH) ->
 
 handle_post(Context, Id) ->
     case sos_request_db:find(Id) of
-        #{type := <<"offer">>} = RequestInfo ->
+        #{
+            type := ?SOS_REQUEST_TYPE_OFFER
+        } = RequestInfo ->
             Role = cb_context:role(Context),
             UserId = cb_context:user_id(Context),
             case sos_request_handler:is_owner_or_admin(Role, UserId, RequestInfo) of 
@@ -289,7 +291,9 @@ handle_post(Context, Id) ->
 
 handle_post(Context, Id,?PATH_STATUS) ->
     case sos_request_db:find(Id) of 
-        #{type := <<"offer">>} = InfoDb -> 
+        #{
+            type := ?SOS_REQUEST_TYPE_OFFER
+        } = InfoDb -> 
          case sos_request_handler:maybe_update_request_status(InfoDb, Context) of 
             {success,NewInfo} -> 
                 cb_context:setters(Context
@@ -305,14 +309,14 @@ handle_post(Context, Id,?PATH_STATUS) ->
                     ]);
                 {error,forbidden} -> 
                     Context2 = api_util:validate_error(Context, <<"status">>, <<"forbidden">>, forbidden),
-                    cb_context:setters(Context,[
+                    cb_context:setters(Context2,[
                         {fun cb_context:set_resp_error_msg/2, forbidden},
                         {fun cb_context:set_resp_status/2, <<"error">>},
                         {fun cb_context:set_resp_error_code/2, 403}
                     ]);
                 {error,Error} -> 
                     Context2 = api_util:validate_error(Context, <<"status">>, <<"invalid">>, Error),
-                    cb_context:setters(Context,[
+                    cb_context:setters(Context2,[
                         {fun cb_context:set_resp_error_msg/2, Error},
                         {fun cb_context:set_resp_status/2, <<"error">>},
                         {fun cb_context:set_resp_error_code/2, 400}
@@ -329,7 +333,9 @@ handle_post(Context, Id,?PATH_STATUS) ->
 -spec handle_delete(cb_context:context(), path_token()) -> cb_context:context().
 handle_delete(Context, Id) ->
     case sos_request_db:find(Id) of 
-         #{type := <<"offer">>} = Info -> 
+         #{
+             type := ?SOS_REQUEST_TYPE_OFFER
+            } = Info -> 
             Role = cb_context:role(Context),
             UserId = cb_context:user_id(Context),
             case sos_request_handler:is_owner_or_admin(Role, UserId, Info) of 
