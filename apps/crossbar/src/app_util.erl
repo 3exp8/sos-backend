@@ -14,6 +14,7 @@
          ,get_role/1
          ,validate_key/5
          ,key_name/2
+         ,to_atom/1
         ]).
 
 -export([
@@ -274,3 +275,14 @@ get_requester_id_from_customer(Context) ->
       undefined -> <<>>;
       Id -> Id
   end.
+
+to_atom(V) when is_list(V) ->
+  try
+    list_to_existing_atom(V)
+  catch
+    _:_ -> list_to_atom(V)
+  end;
+to_atom(V) when is_binary(V) ->
+  to_atom(binary_to_list(V));
+to_atom(V) when is_atom(V) ->
+  V. 

@@ -24,6 +24,7 @@
 sumo_wakeup(Doc) ->
   #{
     id =>  maps:get(id, Doc, <<>>),
+    type => maps:get(type, Doc, <<>>),
     subject =>  maps:get(subject, Doc, <<>>),
     priority_type =>  maps:get(priority_type, Doc, <<>>),
     color_info =>  maps:get(color_info, Doc, #{}),
@@ -56,6 +57,7 @@ sumo_sleep(Info) ->
   DefaultTime = util_db:now_to_utc_binary({0,0,0}),
   #{
     id =>  maps:get(id, Info, <<>>),
+    type => maps:get(type, Info, <<>>),
     subject =>  maps:get(subject, Info, <<>>),
     priority_type =>  maps:get(priority_type, Info, <<>>),
     color_info =>  maps:get(color_info, Info, #{}),
@@ -85,6 +87,7 @@ sumo_sleep(Info) ->
 sumo_schema() ->
   sumo:new_schema(?MODULE, [
                             sumo:new_field(id, binary, [not_null, id]),
+                            sumo:new_field(type, binary),
                             sumo:new_field(support_types, object_list),
                             sumo:new_field(supporters, object_list),
                             sumo:new_field(bookmarks, object_list),
