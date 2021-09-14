@@ -104,7 +104,17 @@ authenticate_with_method(Context, ?HTTP_GET) ->
 %% /api/v1/users/{id}
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
 authenticate(_Context, ?PATH_CONFIRM) -> true;
+
 authenticate(_Context, ?PATH_RESEND) -> true;
+
+authenticate(Context, ?PATH_SEARCH) -> 
+
+  Token = cb_context:auth_token(Context),
+  case app_util:oauth2_authentic(Token, Context) of 
+        false -> true;
+        Res -> Res
+  end;
+
 authenticate(Context, _Id) ->
   Token = cb_context:auth_token(Context),
   app_util:oauth2_authentic(Token, Context).
@@ -635,21 +645,44 @@ handle_post(Context, ?PATH_PASSWORD_CHANGE) ->
 
 handle_post(Context, ?PATH_SEARCH) ->  
 ReqJson =  cb_context:req_json(Context),
-PhoneNumber  = wh_json:get_value(<<"phone_number">>, ReqJson), 
+UserId = cb_context:user_id(Context),
+PhoneNumber  = zt_util:normalize_string(wh_json:get_value(<<"phone_number">>, ReqJson)),
 case user_db:find_by_phone_number(PhoneNumber) of 
 [UserInfo] -> 
-    RespData  = maps:with([id,first_name,last_name, phone_number,address,avatar],UserInfo),
+    
+    RespData  =
+        case zt_util:nvl(UserId, <<>>) of 
+          <<>> -> #{
+                    phone_number => PhoneNumber,
+                    is_existed => true
+                  };
+          _ -> 
+            maps:with([id,first_name,last_name, phone_number,address,avatar],UserInfo)
+        end,
     cb_context:setters(Context,[
       {fun cb_context:set_resp_data/2, RespData}
       ,{fun cb_context:set_resp_status/2, 'success'}
     ]);
  _ -> 
-    Context2 = api_util:validate_error(Context, <<"phone_number">>, <<"not_found">>, <<"phone_number_notfound">>), 
-    cb_context:setters(Context2,
-                                [{fun cb_context:set_resp_error_msg/2, <<"Phone Number Notfound">>},
-                                {fun cb_context:set_resp_status/2, <<"error">>},
-                                {fun cb_context:set_resp_error_code/2, 404}
-                                ]) 
+        case zt_util:nvl(UserId, <<>>) of 
+          <<>> -> 
+            RespData = #{
+                    phone_number => PhoneNumber,
+                    is_existed => false
+                  },
+              cb_context:setters(Context,[
+                {fun cb_context:set_resp_data/2, RespData}
+                ,{fun cb_context:set_resp_status/2, 'success'}
+              ]);
+          _ -> 
+          Context2 = api_util:validate_error(Context, <<"phone_number">>, <<"not_found">>, <<"phone_number_notfound">>), 
+          cb_context:setters(Context2,
+                                      [{fun cb_context:set_resp_error_msg/2, <<"Phone Number Notfound">>},
+                                      {fun cb_context:set_resp_status/2, <<"error">>},
+                                      {fun cb_context:set_resp_error_code/2, 404}
+                                      ]) 
+
+          end
 end;
 
 handle_post(Context, ?PATH_LOGOUT) ->
