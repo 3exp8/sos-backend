@@ -4,7 +4,7 @@
 -include("app.hrl").
 
 -export([
-    calculate_color_type/1,
+    calculate_color_type/2,
     get_supporter_info/3,
     get_suggester_info/1,
     is_joined_request/3,
@@ -253,9 +253,11 @@ validate_update_verify_status(ReqJson, Context) ->
         ErrorContext -> ErrorContext
     end.
 %-spec calculate_color_type([]) -> map().
-calculate_color_type([]) -> #{};
+calculate_color_type(?SOS_REQUEST_TYPE_OFFER, _) -> configuration_handler:get_color_type(<<"green">>);
 
-calculate_color_type(SupportTypes) -> 
+calculate_color_type(_, []) -> #{};
+
+calculate_color_type(_, SupportTypes) -> 
 lager:debug("calculate_color_type SupportTypes: ~p~n",[SupportTypes]),
 Types = 
     lists:map(fun(#{type := Type}) -> 

@@ -639,13 +639,14 @@ get_info(ReqJson, Context) ->
     SharePhoneNumbebr = wh_json:get_value(<<"share_phone_number">>, ReqJson, ?SHARE_PHONE_NUMBER_TYPE_PRIVATE),
     Medias = zt_util:to_map_list(wh_json:get_value(<<"medias">>, ReqJson, [])),
     ObjectStatus = zt_util:to_map_list(wh_json:get_value(<<"requester_object_status">>, ReqJson, [])),
+    Type = wh_json:get_value(<<"type">>, ReqJson, ?SOS_REQUEST_TYPE_ASK),
     #{
-      type => wh_json:get_value(<<"type">>, ReqJson, ?SOS_REQUEST_TYPE_ASK),
+      type => Type,
       subject => Subject,
       priority_type => PriorityType,
       description => Description,
       support_types => filter_support_types(SupportTypes),
-      color_info => sos_request_handler:calculate_color_type(SupportTypes),
+      color_info => sos_request_handler:calculate_color_type(Type, SupportTypes),
       location => Location,
       address_info => AddressInfo,
       contact_info => ContactInfo,
@@ -658,7 +659,7 @@ get_info(ReqJson, Context) ->
 
 filter_support_types(SupportTypesList) -> 
         lists:map(fun(SupportTypeMap) -> 
-            maps:with([<<"type">>,<<"name">>],SupportTypeMap)
+            maps:with([type,name],SupportTypeMap)
         end,SupportTypesList).
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%  INTERNAL FUNCTIONS  %%
