@@ -26,6 +26,7 @@
     validate_search_long/2,
     change_request_status/2,
     change_task_status/2,
+    maybe_verify/2,
     maybe_update_request_status/2,
     maybe_update_request_info/2,
     validate_update_status/2,
@@ -37,7 +38,8 @@
     maybe_filter_bookmark/3,
     maybe_filter_bookmark_by_group/2,
     is_owner/2,
-    is_owner_or_admin/3
+    is_owner_or_admin/3,
+    validate_update_verify_status/2
 ]).
 
 
@@ -115,6 +117,14 @@ find_bookmark([Info|OtherBookmars], Type, Id) ->
     end;
 find_bookmark(_, _, _) -> false.
 
+change_request_verify_status(Status,Status) -> Status;
+change_request_verify_status(_,?SOS_REQUEST_VERIFY_STATUS_REJECTED) -> ?SOS_REQUEST_VERIFY_STATUS_REJECTED;
+change_request_verify_status(_,?SOS_REQUEST_VERIFY_STATUS_VERIFIED) -> ?SOS_REQUEST_VERIFY_STATUS_VERIFIED;
+change_request_verify_status(_,?SOS_REQUEST_VERIFY_STATUS_NOT_VERIFIED) -> ?SOS_REQUEST_VERIFY_STATUS_NOT_VERIFIED;
+
+change_request_verify_status(CurrentStatus,NewStatus) ->
+    lager:debug("change_request_verify_status ignore updating status ~p to ~p ~n",[CurrentStatus,NewStatus]),
+    CurrentStatus.
 
 change_request_status(?SOS_REQUEST_STATUS_OPEN,?SOS_REQUEST_STATUS_VERIFIED) -> ?SOS_REQUEST_STATUS_VERIFIED;
 change_request_status(?SOS_REQUEST_STATUS_REOPEN,?SOS_REQUEST_STATUS_VERIFIED) -> ?SOS_REQUEST_STATUS_VERIFIED;
@@ -229,6 +239,19 @@ validate_update_status(ReqJson, Context) ->
         ErrorContext -> ErrorContext
     end.
 
+validate_update_verify_status(ReqJson, Context) ->
+    Key = <<"status">>,
+    Val = wh_json:get_value(Key, ReqJson, <<>>),
+    case api_util:check_val(Context, Key, Val) of 
+        Context -> 
+            case lists:member(Val, ?SOS_REQUEST_VERIFY_STATUSES) of
+                true -> Context;
+                _ ->
+                    Vals = zt_util:arr_to_str(?SOS_REQUEST_VERIFY_STATUSES),
+                    api_util:validate_error(Context, Key, <<"invalid">>, <<"Invalid ",Key/binary,". Value must be ",Vals/binary>>)
+            end;
+        ErrorContext -> ErrorContext
+    end.
 %-spec calculate_color_type([]) -> map().
 calculate_color_type([]) -> #{};
 
@@ -362,6 +385,38 @@ maybe_update_request_status(#{
             end
     end.
 
+maybe_verify(#{
+    verify_status := CurrentVerifyStatus,
+    status_history := StatusHistoryDb
+} = SosRequestInfo, Context) ->
+    ReqJson =  cb_context:req_json(Context),
+    UserId =  cb_context:user_id(Context),
+    NewStatus = wh_json:get_value(<<"status">>, ReqJson,<<>>),
+    case change_request_verify_status(CurrentVerifyStatus, NewStatus) of 
+                CurrentVerifyStatus -> {warning, status_nochange};
+                NewStatus ->
+                    #{
+                       first_name := FirstName,
+                       last_name := LastName
+                    } = user_db:find(UserId),
+                    NewStatusHistory = add_status_history(#{
+                        user_id => UserId,
+                        first_name => FirstName,
+                        last_name => LastName,
+                        status => NewStatus,
+                        note => wh_json:get_value(<<"note">>, ReqJson,<<>>),
+                        time => zt_datetime:get_now()
+                    }, StatusHistoryDb),
+                
+                NewSosRequestInfo = 
+                        maps:merge(SosRequestInfo, #{
+                            verify_status => NewStatus,
+                            status_history => NewStatusHistory
+                        }),
+            
+                sos_request_db:save(NewSosRequestInfo),
+                {success,NewSosRequestInfo}
+            end.
 add_status_history(StatusInfo, undefined) -> 
     add_status_history(StatusInfo, []); 
 

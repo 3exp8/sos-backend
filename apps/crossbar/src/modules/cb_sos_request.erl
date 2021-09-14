@@ -40,6 +40,7 @@
 -define(PATH_SUGGEST, <<"suggest">>).
 -define(PATH_BOOKMARK, <<"bookmark">>).
 -define(PATH_STATUS, <<"status">>).
+-define(PATH_VERIFY, <<"verify">>).
 
 
 init() ->
@@ -69,6 +70,9 @@ allowed_methods(_Id, ?PATH_SUGGEST) ->
 allowed_methods(_Id, ?PATH_BOOKMARK) ->
     [?HTTP_POST];
 
+allowed_methods(_Id, ?PATH_VERIFY) ->
+    [?HTTP_POST];
+
 allowed_methods(_Id, ?PATH_STATUS) ->
     [?HTTP_POST].
 
@@ -86,6 +90,8 @@ resource_exists(_Id, ?PATH_SUPPORT) -> true;
 resource_exists(_Id, ?PATH_BOOKMARK) -> true;
 
 resource_exists(_Id, ?PATH_STATUS) -> true;
+
+resource_exists(_Id, ?PATH_VERIFY) -> true;
 
 resource_exists(_Id, ?PATH_SUGGEST) -> true.
 
@@ -117,6 +123,10 @@ authenticate(Context, _Id, ?PATH_BOOKMARK) ->
     app_util:oauth2_authentic(Token, Context);
 
 authenticate(Context, _Id, ?PATH_STATUS) ->
+    Token = cb_context:auth_token(Context),
+    app_util:oauth2_authentic(Token, Context);
+
+authenticate(Context, _Id, ?PATH_VERIFY) ->
     Token = cb_context:auth_token(Context),
     app_util:oauth2_authentic(Token, Context);
 
@@ -176,6 +186,9 @@ authorize_verb(Context, _Id, ?PATH_BOOKMARK, ?HTTP_POST) ->
     Role = cb_context:role(Context),
     authorize_util:check_role(Role, ?USER_ROLE_USER_GE);
 
+authorize_verb(Context, _Id, ?PATH_VERIFY, ?HTTP_POST) -> 
+    Role = cb_context:role(Context),
+    authorize_util:check_role(Role, ?USER_ROLE_OPERATOR_GE);    
 
 authorize_verb(Context, _Id, ?PATH_STATUS, ?HTTP_POST) -> 
     Role = cb_context:role(Context),
@@ -476,6 +489,45 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                 ])
         end;
 
+    handle_post(Context, Id,?PATH_VERIFY) ->
+        case sos_request_db:find(Id) of 
+            notfound -> 
+                cb_context:setters(Context,
+                    [{fun cb_context:set_resp_error_msg/2, <<"Sos Request Not Found">>},
+                    {fun cb_context:set_resp_status/2, 'error'},
+                    {fun cb_context:set_resp_error_code/2, 404}]
+                );
+            InfoDb -> 
+             case sos_request_handler:maybe_verify(InfoDb, Context) of 
+                {success,NewInfo} -> 
+                    cb_context:setters(Context
+                                    ,[{fun cb_context:set_resp_data/2, NewInfo}
+                                    ,{fun cb_context:set_resp_status/2, 'success'}
+                                    ]);  
+                    {warning,WarningMsg} ->
+                        Context2 = api_util:validate_error(Context, <<"status">>, <<"invalid">>, WarningMsg),
+                        cb_context:setters(Context2,[
+                            {fun cb_context:set_resp_error_msg/2, WarningMsg},
+                            {fun cb_context:set_resp_status/2, <<"error">>},
+                            {fun cb_context:set_resp_error_code/2, 400}
+                        ]);
+                    {error,forbidden} -> 
+                        Context2 = api_util:validate_error(Context, <<"status">>, <<"forbidden">>, forbidden),
+                        cb_context:setters(Context2,[
+                            {fun cb_context:set_resp_error_msg/2, forbidden},
+                            {fun cb_context:set_resp_status/2, <<"error">>},
+                            {fun cb_context:set_resp_error_code/2, 403}
+                        ]);
+                    {error,Error} -> 
+                        Context2 = api_util:validate_error(Context, <<"status">>, <<"invalid">>, Error),
+                        cb_context:setters(Context2,[
+                            {fun cb_context:set_resp_error_msg/2, Error},
+                            {fun cb_context:set_resp_status/2, <<"error">>},
+                            {fun cb_context:set_resp_error_code/2, 400}
+                        ])
+             end
+        end;
+
 handle_post(Context, Id,?PATH_STATUS) ->
     case sos_request_db:find(Id) of 
         notfound -> 
@@ -712,6 +764,18 @@ validate_request(_Id, ?PATH_STATUS, Context, ?HTTP_POST) ->
     Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
     ValidateFuns = [
         fun sos_request_handler:validate_update_status/2
+    ],
+    lists:foldl(fun (F, C) ->
+                        F(ReqJson, C)
+                end,
+    Context1,ValidateFuns);
+
+
+validate_request(_Id, ?PATH_VERIFY, Context, ?HTTP_POST) ->
+    ReqJson = cb_context:req_json(Context),
+    Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
+    ValidateFuns = [
+        fun sos_request_handler:validate_update_verify_status/2
     ],
     lists:foldl(fun (F, C) ->
                         F(ReqJson, C)
