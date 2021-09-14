@@ -12,6 +12,7 @@
 -define(PATH_SUGGEST, <<"suggest">>).
 -define(PATH_BOOKMARK, <<"bookmark">>).
 -define(PATH_MYTASKS, <<"tasks">>).
+-define(PATH_MYREQUESTS, <<"sos_requests">>).
 
 -export([init/0
          ,allowed_methods/0
@@ -141,6 +142,7 @@ authorize(_Context, ?PATH_SEARCH = _Path) -> true;
 authorize(_Context, ?PATH_BOOKMARK = _Path) -> true;
 authorize(_Context, ?PATH_SUGGEST = _Path) -> true;
 authorize(_Context, ?PATH_MYTASKS = _Path) -> true;
+authorize(_Context, ?PATH_MYREQUESTS = _Path) -> true;
 
 authorize(Context, ?PATH_CREATE = Path) ->
   authorize_verb(Context, Path, cb_context:req_verb(Context)).
@@ -265,6 +267,49 @@ handle_get({Req, Context}, ?PATH_MYTASKS) ->
                         'and',[
                           {<<"supporters.type">>,?OBJECT_TYPE_GROUP},
                           {<<"supporters.id">>,'in',GroupIds}
+                      ]}
+                  ]
+              }], PropQueryJson, Limit, Offset),
+
+    {Req, cb_context:setters(Context
+                    ,[{fun cb_context:set_resp_data/2, SosRequests}
+                    ,{fun cb_context:set_resp_status/2, 'success'}
+           ])};
+    _ ->
+      Context2 = api_util:validate_error(Context, <<"user">>, <<"not_found">>, <<"user_notfound">>), 
+      {Req, cb_context:setters(Context2, [
+                  {fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
+                  {fun cb_context:set_resp_status/2, <<"error">>},
+                  {fun cb_context:set_resp_error_code/2, 404}
+      ])}
+  end;
+
+handle_get({Req, Context}, ?PATH_MYREQUESTS) ->
+  UserId = cb_context:user_id(Context),
+  case user_db:find(UserId) of 
+    #{} = UserInfo -> 
+   
+      Groups = group_handler:find_groups_by_user(UserId),
+      GroupIds = 
+        lists:map(fun(#{id := GroupId}) -> 
+          GroupId
+        end,Groups),
+    lager:debug("UserId: ~p, GroupIds: ~p~n",[UserId, GroupIds]),
+    QueryJson = cb_context:query_string(Context),
+    Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
+    Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
+    PropQueryJson = wh_json:to_proplist(QueryJson),
+      SosRequests = 
+                  sos_request_db:find_by_conditions([
+                    {'or',[
+                      {'and',[
+                          {<<"requester_type">>,?OBJECT_TYPE_USER},
+                          {<<"requester_info.id">>,UserId}
+                      ]}
+                      ,{
+                        'and',[
+                          {<<"requester_type">>,?OBJECT_TYPE_GROUP},
+                          {<<"requester_info.id">>,'in',GroupIds}
                       ]}
                   ]
               }], PropQueryJson, Limit, Offset),

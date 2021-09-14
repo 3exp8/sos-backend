@@ -245,6 +245,7 @@ handle_put(Context) ->
         Info = maps:merge(BaseInfo, #{
             id => Id,
             status => ?SOS_REQUEST_STATUS_OPEN,
+            is_joined => false,
             requester_type => RequesterType,
             requester_info => RequesterInfo
         }),
@@ -346,31 +347,33 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                     supporters := SupportersDb
                 } = RequestInfo ->
                     case sos_request_handler:is_joined_request(Type,SupporterId,RequestInfo) of 
-                    false -> 
-                        UpdatedTime = zt_datetime:get_now(),
-                        NewStatus = sos_request_handler:change_request_status(StatusDb, ?SOS_REQUEST_STATUS_ACCEPTED),
-                        SuppoterInfo = maps:merge(BaseSupporterInfo, #{
-                            schedule_support_date => wh_json:get_value(<<"support_date">>, ReqJson,<<>>),
-                            description => wh_json:get_value(<<"description">>, ReqJson,<<>>),
-                            status => ?SOS_TASK_STATUS_OPEN
-                        }),
-                        NewSupporters = [SuppoterInfo|SupportersDb],
-                        NewInfo =  maps:merge(RequestInfo,#{
-                                status => NewStatus,
-                                supporters => NewSupporters,
-                                updated_by => app_util:get_requester_id(Context),
-                                updated_time => UpdatedTime
-                        }),
-                        sos_request_db:save(NewInfo),
-                        cb_context:setters(Context,
-                                        [{fun cb_context:set_resp_data/2, NewInfo},
-                                            {fun cb_context:set_resp_status/2, success}]);
-                    true -> 
-                        cb_context:setters(Context,
-                        [{fun cb_context:set_resp_error_msg/2, <<"You are always join this request">>},
-                            {fun cb_context:set_resp_status/2, <<"error">>},
-                            {fun cb_context:set_resp_error_code/2, 400}])
-                end;
+                        false -> 
+                            UpdatedTime = zt_datetime:get_now(),
+                            NewStatus = sos_request_handler:change_request_status(StatusDb, ?SOS_REQUEST_STATUS_ACCEPTED),
+                            SupporterInfo = maps:merge(BaseSupporterInfo, #{
+                                schedule_support_date => wh_json:get_value(<<"support_date">>, ReqJson,<<>>),
+                                description => wh_json:get_value(<<"description">>, ReqJson,<<>>),
+                                is_support_all => wh_json:get_value(<<"is_support_all">>, ReqJson,<<"false">>),
+                                status => ?SOS_TASK_STATUS_OPEN
+                            }),
+                            NewSupporters = [SupporterInfo|SupportersDb],
+                            NewInfo =  maps:merge(RequestInfo,#{
+                                    is_joined => true,
+                                    status => NewStatus,
+                                    supporters => NewSupporters,
+                                    updated_by => app_util:get_requester_id(Context),
+                                    updated_time => UpdatedTime
+                            }),
+                            sos_request_db:save(NewInfo),
+                            cb_context:setters(Context,
+                                            [{fun cb_context:set_resp_data/2, NewInfo},
+                                                {fun cb_context:set_resp_status/2, success}]);
+                        true -> 
+                            cb_context:setters(Context,
+                            [{fun cb_context:set_resp_error_msg/2, <<"You are always join this request">>},
+                                {fun cb_context:set_resp_status/2, <<"error">>},
+                                {fun cb_context:set_resp_error_code/2, 400}])
+                    end;
                         
                 _ ->
                     cb_context:setters(Context,
