@@ -31,7 +31,7 @@ get_address_detail_info(AddressProps) when is_list(AddressProps) ->
 get_address_detail_info(ReqAddressInfoRaw) -> 
     ReqAddressInfo = zt_util:map_keys_to_atom(ReqAddressInfoRaw),
     ReqAddressInfoDb = 
-        cb_province:get_province_district_ward_info(
+        get_province_district_ward_info(
             maps:get(province_id, ReqAddressInfo,<<>>),
             maps:get(district_code, ReqAddressInfo, 0),
             maps:get(ward_code, ReqAddressInfo, 0)

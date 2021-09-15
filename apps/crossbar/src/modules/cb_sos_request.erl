@@ -634,7 +634,7 @@ get_info(ReqJson, Context) ->
     Description = wh_json:get_value(<<"description">>, ReqJson, <<>>),
     SupportTypes = zt_util:to_map_list(wh_json:get_value(<<"support_types">>, ReqJson, [])),
     Location = wh_json:get_value(<<"location">>, ReqJson, <<"0.0,0.0">>),
-    AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
+    AddressInfo = province_handler:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
     ContactInfo = zt_util:to_map(wh_json:get_value(<<"contact_info">>, ReqJson, [])),
     SharePhoneNumbebr = wh_json:get_value(<<"share_phone_number">>, ReqJson, ?SHARE_PHONE_NUMBER_TYPE_PRIVATE),
     Medias = zt_util:to_map_list(wh_json:get_value(<<"medias">>, ReqJson, [])),
@@ -645,7 +645,7 @@ get_info(ReqJson, Context) ->
       subject => Subject,
       priority_type => PriorityType,
       description => Description,
-      support_types => filter_support_types(SupportTypes),
+      support_types => sos_request_handler:filter_support_types(SupportTypes),
       color_info => sos_request_handler:calculate_color_type(Type, SupportTypes),
       location => Location,
       address_info => AddressInfo,
@@ -657,10 +657,6 @@ get_info(ReqJson, Context) ->
       created_time => zt_datetime:get_now()
      }.
 
-filter_support_types(SupportTypesList) -> 
-        lists:map(fun(SupportTypeMap) -> 
-            maps:with([type,name],SupportTypeMap)
-        end,SupportTypesList).
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%  INTERNAL FUNCTIONS  %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -707,10 +703,9 @@ validate_request(Id, Context, ?HTTP_POST) ->
         fun sos_request_handler:validate_share_phone_number_update/2
     ],
     lists:foldl(fun (F, C) ->
-                        F(Id,ReqJson, C)
+                        F(ReqJson, C)
                 end,
-                Context1,
-                ValidateFuns);
+    Context1,ValidateFuns);
 
 validate_request(_Id, Context, ?HTTP_DELETE) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);

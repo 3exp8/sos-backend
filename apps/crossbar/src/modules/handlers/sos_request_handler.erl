@@ -8,6 +8,7 @@
     get_supporter_info/3,
     get_suggester_info/1,
     is_joined_request/3,
+    filter_support_types/1,
     maybe_update_support_status/4,
     maybe_add_bookmarks/2,
     maybe_remove_bookmarks/3,
@@ -169,6 +170,16 @@ change_task_status(CurrentStatus,NewStatus) ->
     lager:debug("change_task_status ignore updateing status ~p to ~p ~n",[CurrentStatus,NewStatus]),
     CurrentStatus.
 
+auto_update_request_status(?SOS_TASK_STATUS_EXECUTING,_) -> ?SOS_REQUEST_STATUS_EXECUTING;
+
+auto_update_request_status(_, CurrentRequestStatus) -> CurrentRequestStatus.
+
+
+filter_support_types(SupportTypesList) -> 
+    lists:map(fun(SupportTypeMap) -> 
+            maps:with([type,name],SupportTypeMap)
+    end,SupportTypesList).
+
 maybe_add_bookmarks(undefined, BookmarkInfo) -> maybe_add_bookmarks([], BookmarkInfo);
 maybe_add_bookmarks(CurrentBookmarks, #{
     bookmarker_type := BookmarkerType,
@@ -281,7 +292,7 @@ maybe_update_request_info(Context, #{
     color_info := ColorInfoDb,
     share_phone_number := SharePhoneNumberDb,
     medias := MediasDb,
-    request_object_status := ObjectStatusDb,
+    requester_object_status := ObjectStatusDb,
     description := DescriptionDb,
     location := LocationDb
 } = RequestInfo) -> 
@@ -295,7 +306,7 @@ maybe_update_request_info(Context, #{
                     zt_util:to_map_list(SupportTypeReq)
         end,
     Location = wh_json:get_value(<<"location">>, ReqJson, LocationDb),
-    AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson, AddressInfoDb)),
+    AddressInfo = province_handler:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson, AddressInfoDb)),
     
     NewContactInfo = 
         case wh_json:get_value(<<"contact_info">>, ReqJson, <<>>) of
@@ -331,7 +342,7 @@ maybe_update_request_info(Context, #{
                     contact_info => NewContactInfo,
                     share_phone_number => NewSharePhoneNumber,
                     medias => NewMedias,
-                    request_object_status => NewObjectStatus,
+                    requester_object_status => NewObjectStatus,
                     updated_by => app_util:get_requester_id(Context),
                     updated_time => zt_datetime:get_now()
     }),
@@ -464,13 +475,17 @@ maybe_update_support_status(Type, Id, SosRequestInfo, NewSupportStatus) ->
     case NewSupporters of 
         Supporters -> {error,no_change};
         _ -> 
+            RequetStatusDb = maps:get(status, SosRequestInfo,<<>>),
+            NewRequestStatus = auto_update_request_status(NewSupportStatus,RequetStatusDb),
+
             NewSosRequestInfo = 
                 maps:merge(SosRequestInfo,#{
-                    supporters => NewSupporters
+                    supporters => NewSupporters,
+                    status => NewRequestStatus,
+                    updated_time => zt_datetime:get_now()
                 }),
             {ok, NewSosRequestInfo}
     end.
-
 is_joined_request(Type, Id, SosRequestInfo) ->
     Supporters = maps:get(supporters, SosRequestInfo, []),
     lists:any(fun(SupportInfo) -> 
@@ -748,8 +763,11 @@ validate_share_phone_number(ReqJson, Context) ->
 -spec validate_share_phone_number_update(api_binary(), cb_context:context()) -> cb_context:context().
 validate_share_phone_number_update(ReqJson, Context) ->
   Key = <<"share_phone_number">>,
-  Val = wh_json:get_value(Key, ReqJson, <<>>),
-  validate_share_phone_number_value(Key, Val, Context).
+  case wh_json:get_value(Key, ReqJson, <<>>) of 
+        <<>> -> Context;
+        Val ->
+            validate_share_phone_number_value(Key, Val, Context)
+  end.
 
 -spec validate_requester_type_value(binary(), binary(), cb_context:context()) -> cb_context:context().
 validate_requester_type_value(Key, Val, Context) ->

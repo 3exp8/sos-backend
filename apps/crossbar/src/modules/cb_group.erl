@@ -304,7 +304,7 @@ handle_post(Context, Id) ->
                 name => wh_json:get_value(<<"name">>, ReqJson,NameDb),
                 location => wh_json:get_value(<<"location">>, ReqJson, LocationDb),
                 avatar => wh_json:get_value(<<"avatar">>, ReqJson, AvatarDb),
-                address_info => cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,AddressInfoDb)),
+                address_info => province_handler:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,AddressInfoDb)),
                 contact_info => NewContactInfo,
                 detail_info => NewDetailInfo,
                 description => wh_json:get_value(<<"description">>, ReqJson,DescriptionDb),         
@@ -453,7 +453,7 @@ permissions() ->
 
 get_info(ReqJson,UserId) -> 
     Type = zt_util:normalize_string(wh_json:get_value(<<"type">>, ReqJson)),
-    AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
+    AddressInfo = province_handler:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
 
     CreateTime  =  zt_datetime:get_now(),
     #{

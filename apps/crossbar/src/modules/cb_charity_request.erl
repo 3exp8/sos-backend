@@ -371,7 +371,7 @@ get_info(ReqJson, Context) ->
     Description = wh_json:get_value(<<"description">>, ReqJson, <<>>),
     SupportTypes = wh_json:get_value(<<"support_types">>, ReqJson, []),
     Location = wh_json:get_value(<<"location">>, ReqJson, <<"0.0,0.0">>),
-    AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
+    AddressInfo = province_handler:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
     ContactInfo = zt_util:to_map(wh_json:get_value(<<"contact_info">>, ReqJson, [])),
     SharePhoneNumbebr = wh_json:get_value(<<"share_phone_number">>, ReqJson, ?SHARE_PHONE_NUMBER_TYPE_PRIVATE),
     Medias = zt_util:to_map_list(wh_json:get_value(<<"medias">>, ReqJson, [])),
