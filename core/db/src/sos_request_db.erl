@@ -72,7 +72,10 @@ build_sort([], []) ->
 
 build_sort(Query, [{Key, Value}| Tail]) when is_list(Query) -> 
 
-  Condition = if  
+  Condition = if
+        Key == <<"sort_distance">> -> {location, 'distance', Value};
+        Key == <<"sort_priority">> -> {<<"color_info.priority">>,  Value};
+        Key == <<"sort_type">> -> {type, Value};
         Key == <<"sort_created_by">> -> {created_by, Value};
         Key == <<"sort_created_time">> -> {created_time, Value};
         Key == <<"sort_updated_by">> -> {updated_by, Value};
@@ -95,6 +98,7 @@ build_sort(_Query, _Other) ->
 build_query(Query, [{Key, Value}| Tail]) when is_list(Query) -> 
   Condition = if  
         Key == <<"filter_phone_number">>  -> {phone_number, Value};
+        Key == <<"filter_type">>  -> {type, Value};
         Key == <<"filter_requester_type">>  -> {<<"requester_type">>, Value};
         Key == <<"filter_requester_id">>  -> {<<"requester_info.id">>, Value};
         Key == <<"filter_supporter_id">>  -> {<<"supporters#id">>, Value};
@@ -136,15 +140,14 @@ reindex([]) ->
   finished;
   
 reindex([H|T]) ->
-  NewInfo = maps:merge(H, #{
-      account_id => maps:get(id, H, <<>>),
-      roles => [#{
-        roles => [<<"admin">>],
-        related_type => <<"all">>,
-        related_id => <<"all">>
-      }]
-    }),
-  save(NewInfo),
+  case maps:get(type, H, <<>>) of 
+      <<>> -> 
+          NewInfo = maps:merge(H, #{
+              type => <<"ask">>
+            }),
+          save(NewInfo);
+      _ -> H
+  end,
   reindex(T).
 
 fetch_all(CurRes, Limit, Offset) ->

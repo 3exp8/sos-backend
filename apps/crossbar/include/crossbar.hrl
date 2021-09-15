@@ -154,7 +154,8 @@
       'cb_support_trans',
       'cb_apis',
       'cb_s3',
-      'cb_systemctl'
+      'cb_systemctl',
+      'cb_charity_request'
     ]).
 
 
