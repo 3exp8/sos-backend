@@ -1,0 +1,186 @@
+##################################################################################################
+#  Es PersistentVolume
+##################################################################################################
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: es-data-pv
+  labels:
+    type: local
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 2Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/home/core"
+---
+##################################################################################################
+#  ES PersistentVolumeClaim
+##################################################################################################
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: es-data-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 1Gi
+---
+##################################################################################################
+#  ES Service
+##################################################################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: es-service
+spec:
+  selector:
+    app: es-cluster
+  ports:
+    - name: tcp
+      port: 9200
+      protocol: TCP
+      nodePort: 30002
+  type: NodePort
+---
+##################################################################################################
+#  ES Ingress
+##################################################################################################
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: es-ingress
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: es-service
+                port:
+                  number: 9200
+---
+##################################################################################################
+#  ES Service Transport
+##################################################################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-cluster
+spec:
+  clusterIP: None
+  selector:
+    app: es-cluster
+  ports:
+    - name: transport
+      port: 9300
+---
+##################################################################################################
+#  ES ConfigMap
+##################################################################################################
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: es-config
+data:
+  elasticsearch.yml: |
+    cluster.name: sos-elastic-cluster
+    network.host: "0.0.0.0"
+    bootstrap.memory_lock: false
+    discovery.zen.ping.unicast.hosts: elasticsearch-cluster
+    discovery.zen.minimum_master_nodes: 1
+    xpack.security.enabled: false
+    xpack.monitoring.enabled: false
+  ES_JAVA_OPTS: -Xms512m -Xmx512m
+---
+##################################################################################################
+#  ES StatefulSet
+##################################################################################################
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: esnode
+  labels:
+    app: es-cluster
+spec:
+  serviceName: elasticsearch
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: es-cluster
+  template:
+    metadata:
+      labels:
+        app: es-cluster
+    spec:
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        - name: init-sysctl
+          image: busybox
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          command: ["sysctl", "-w", "vm.max_map_count=262144"]
+        - name: file-permissions
+          image: busybox
+          command: ['chmod','-R', '777', '/usr/share/elasticsearch/']
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - mountPath: /usr/share/elasticsearch/data
+              name: es-data
+          securityContext:
+            privileged: true
+            runAsUser: 0
+      containers:
+        - name: elasticsearch
+          resources:
+            requests:
+              memory: 1Gi
+          securityContext:
+            privileged: true
+            runAsUser: 1000
+            capabilities:
+              add:
+                - IPC_LOCK
+                - SYS_RESOURCE
+          image: docker.elastic.co/elasticsearch/elasticsearch:7.14.1
+          env:
+            - name: discovery.type
+              value: single-node
+            - name: ES_JAVA_OPTS
+              valueFrom:
+                configMapKeyRef:
+                  name: es-config
+                  key: ES_JAVA_OPTS
+          ports:
+            - containerPort: 9200
+              name: es-http
+            - containerPort: 9300
+              name: es-transport
+          volumeMounts:
+            - name: es-data
+              mountPath: /usr/share/elasticsearch/data
+            - name: elasticsearch-config
+              mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+              subPath: elasticsearch.yml
+      volumes:
+        - name: elasticsearch-config
+          configMap:
+            name: es-config
+            items:
+              - key: elasticsearch.yml
+                path: elasticsearch.yml
+        - name: es-data
+          persistentVolumeClaim:
+            claimName: es-data-pvc
