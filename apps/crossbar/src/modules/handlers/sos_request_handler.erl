@@ -9,6 +9,7 @@
     get_suggester_info/1,
     is_joined_request/3,
     filter_support_types/1,
+    maybe_hide_phone_number/2,
     maybe_update_support_status/4,
     maybe_add_bookmarks/2,
     maybe_remove_bookmarks/3,
@@ -107,6 +108,35 @@ maybe_filter_bookmark_by_group(Groups, #{bookmarks := Bookmarks} = SosRequestInf
             })
     end.
     
+
+
+maybe_hide_phone_number(?SHARE_PHONE_NUMBER_TYPE_PUBLIC,RequestInfo) -> RequestInfo;
+
+maybe_hide_phone_number(_,RequestInfo) -> 
+
+    #{
+        contact_info := ContactInfoDb,
+        requester_info := RequesterInfoDb
+    } = RequestInfo,
+    ContactPhone = maps:get(<<"phone_number">>,ContactInfoDb,<<>>),
+    NewContactPhone = zt_util:to_bin(string:right(zt_util:to_str(ContactPhone),3)),
+    NewContactInfo = 
+        maps:merge(ContactInfoDb, #{
+                 <<"phone_number">> => <<"xxxxxxx",NewContactPhone/binary>>
+             }),
+    RequesterPhone = maps:get(<<"phone_number">>,ContactInfoDb,<<>>),
+    NewRequesterPhone = zt_util:to_bin(string:right(zt_util:to_str(RequesterPhone),3)),
+    NewRequesterInfo = 
+                 maps:merge(RequesterInfoDb, #{
+                          <<"phone_number">> => <<"xxxxxxx",NewRequesterPhone/binary>>
+                      }),
+             
+    maps:merge(RequestInfo, #{
+        contact_info => NewContactInfo,
+        requester_info => NewRequesterInfo
+    }).
+
+
 find_bookmark([], _Type, _Id) -> false;
 
 find_bookmark([Info|OtherBookmars], Type, Id) -> 
