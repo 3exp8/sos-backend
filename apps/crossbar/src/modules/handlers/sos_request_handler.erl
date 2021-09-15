@@ -136,7 +136,9 @@ change_request_status(?SOS_REQUEST_STATUS_REOPEN,?SOS_REQUEST_STATUS_ACCEPTED) -
 
 change_request_status(?SOS_REQUEST_STATUS_ACCEPTED,?SOS_REQUEST_STATUS_EXECUTING) -> ?SOS_REQUEST_STATUS_EXECUTING;
 
+change_request_status(_,?SOS_REQUEST_STATUS_RESOLVED) -> ?SOS_REQUEST_STATUS_RESOLVED;
 change_request_status(?SOS_REQUEST_STATUS_EXECUTING,?SOS_REQUEST_STATUS_RESOLVED) -> ?SOS_REQUEST_STATUS_RESOLVED;
+
 
 change_request_status(?SOS_REQUEST_STATUS_OPEN,?SOS_REQUEST_STATUS_REJECTED) -> ?SOS_REQUEST_STATUS_REJECTED;
 change_request_status(?SOS_REQUEST_STATUS_REOPEN,?SOS_REQUEST_STATUS_REJECTED) -> ?SOS_REQUEST_STATUS_REJECTED;
@@ -341,14 +343,16 @@ maybe_update_request_info(Context, #{
 maybe_update_request_status(#{
     status := CurrentStatus,
     status_history := StatusHistoryDb,
+    requester_type := RequesterType,
     requester_info := RequesterInfoRaw
 } = SosRequestInfo, Context) ->
     ReqJson =  cb_context:req_json(Context),
     UserId =  cb_context:user_id(Context),
     RequesterInfo = zt_util:map_keys_to_atom(RequesterInfoRaw),
     RequesterId = maps:get(id,RequesterInfo,<<>>),
-    RequesterType = maps:get(type,RequesterInfo,<<>>),
+    %RequesterType = maps:get(type,RequesterInfo,<<>>),
     Role = cb_context:role(Context),
+    lager:debug("maybe_update_request_status: Role: ~p,RequesterId: ~p,UserId: ~p,RequesterType: ~p~n",[Role,RequesterId,UserId,RequesterType ]),
     case check_permission_update_request_status(RequesterType,RequesterId, UserId, Role) of 
         false -> {error,forbidden};
         true -> 
