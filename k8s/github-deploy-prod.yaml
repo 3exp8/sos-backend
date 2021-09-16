@@ -1,3 +1,51 @@
+##################################################################################################
+#  Persistent Volume to store cluster data
+##################################################################################################
+apiVersion: v1
+kind: PersistentVolume
+metadata: 
+  name: sos-backend-pv
+  labels: 
+    name: sos-backend-pv
+spec: 
+  capacity:   
+    storage: 500Mi 
+  storageClassName: manual 
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  local:
+    path: "~/test/so-data"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - k8s-master.sos.local
+---
+##################################################################################################
+#  Persistent Volume Claim to store cluster data
+##################################################################################################
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: 
+  name: sos-backend-pvc
+spec: 
+  accessModes:    
+    - ReadWriteOnce 
+  storageClassName: manual 
+  resources:   
+    requests:     
+      storage: 500Mi
+---
+##################################################################################################
+#  Backend Config & Start up script 
+#  Apply to statefulset
+#  Maximum 2 Repicas
+##################################################################################################
+
 apiVersion: v1
 kind: ConfigMap
 metadata: 
@@ -279,3 +327,83 @@ data:
         ]
       }
       ].
+---
+##################################################################################################
+#  Sos Backend Satefulset
+#  Maximum 2 Replicas
+##################################################################################################
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: 
+  name: sos-backend 
+  labels:   
+    app: sos-backend
+spec: 
+  serviceName: "sos-backend-hl-svc" 
+  replicas: 2
+  selector:
+    matchLabels:     
+      app: sos-backend 
+  template:   
+    metadata:     
+      labels:       
+        app: sos-backend
+    spec:
+      volumes:       
+        - name: config-volume
+          configMap:         
+            name: sos-backend-config
+        - name: sos-backend-data-volume
+          persistentVolumeClaim:
+            claimName: sos-backend-pvc
+      containers:     
+        - name: sos-backend      
+          image: ghcr.io/sos-hub-vn/sos-backend:prod-latest
+          imagePullPolicy: IfNotPresent
+          ports:       
+            - containerPort: 8080      
+          volumeMounts:
+            - name: config-volume         
+              mountPath: /usr/local/sos/config
+            - name: sos-backend-data-volume         
+              mountPath: /usr/local/sos/data
+          command:
+            - "ash"
+          args:  ["config/run-sos-backend.sh","$(POD_NAME)"]
+          env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+---
+##################################################################################################
+#  Sos-backend Headless Service
+##################################################################################################
+apiVersion: v1
+kind: Service
+metadata: 
+  name: sos-backend-hl-svc
+spec: 
+  clusterIP: None
+  selector:   
+    app: sos-backend
+
+---
+##################################################################################################
+#  Sos-backend Load Balancer Service
+##################################################################################################
+apiVersion: v1
+kind: Service
+metadata: 
+  name: sos-backend-svc
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb-ip
+spec: 
+  type: LoadBalancer
+  selector:   
+    app: sos-backend
+  ports:  
+    - name: sos-backend-svc-8080-8080
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
