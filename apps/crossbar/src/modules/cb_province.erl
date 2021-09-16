@@ -156,10 +156,16 @@ handle_get({Req, Context},Id) ->
 
             Districts = maps:get(districts,Info,[]),
             PropDistricts = lists:map(fun(DistrictInfo) ->
-                get_sub_fields_districts(DistrictInfo) end, Districts),
+                get_sub_fields_districts(DistrictInfo) 
+            end, Districts),
+
+            SortedDistricts = 
+                lists:sort(fun(#{<<"short_codename">> := Name1}, #{<<"short_codename">> := Name2}) -> 
+                    Name1 < Name2
+                end,PropDistricts),
 
             NewInfo = maps:merge(Info, #{
-                districts => PropDistricts
+                districts => SortedDistricts
             }),
             lager:info("--------- Get provinces by id 2 ~n",[]),
             cb_context:setters(Context
