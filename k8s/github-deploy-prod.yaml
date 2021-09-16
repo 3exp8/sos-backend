@@ -15,15 +15,15 @@ spec:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Delete
   local:
-    path: "~/test/so-data"
-  nodeAffinity:
+    path: "~/test/so-data" ##TODO: Change here
+  nodeAffinity: ##TODO: Change all below if necessary
     required:
       nodeSelectorTerms:
       - matchExpressions:
         - key: kubernetes.io/hostname
           operator: In
           values:
-          - k8s-master.sos.local
+          - k8s-master.sos.local ##TODO: Change here
 ---
 ##################################################################################################
 #  Persistent Volume Claim to store cluster data
@@ -189,7 +189,7 @@ data:
           {elasticsearch_backend,
             sumo_backend_elasticsearch,
             [
-            {host, "elastic-0.elasttic-hl-svc"},
+            {host, "elastic-0.elasttic-hl-svc"}, %%TODO: Maybe change here for elasticsearch connection
             {port, 9200},
             {index, "sumo_test"},
             {poolsize, 10}]
@@ -197,23 +197,14 @@ data:
 
         ]},
           {stores, [
-            {es_account, sumo_store_elasticsearch, [
-              {storage_backend, elasticsearch_backend},
-              {index, "prod_sos_account_idx"}
-            ]},
             {es_configuration, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
               {index, "prod_sos_configuration_idx"}
-            ]},
-            {es_customer, sumo_store_elasticsearch, [
-              {storage_backend, elasticsearch_backend},
-              {index, "prod_sos_customer_idx"}
             ]},
             {es_device, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
               {index, "prod_sos_device_idx"}
             ]},
-            
             {es_group, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
               {index, "prod_sos_group_idx"}
@@ -238,7 +229,6 @@ data:
               {storage_backend, elasticsearch_backend},
               {index, "prod_sos_province_idx"}
             ]},
-          
             {es_support_trans, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
               {index, "prod_sos_support_trans_idx"}
@@ -262,9 +252,7 @@ data:
             ]},
           {docs, [
             {access_token_doc, es_token},
-            {account_doc, es_account},
             {configuration_doc, es_configuration},
-            {customer_doc,  es_customer},
             {device_doc,  es_device},
             {group_doc,  es_group},
             {news_doc,  es_news},
@@ -358,7 +346,7 @@ spec:
             claimName: sos-backend-pvc
       containers:     
         - name: sos-backend      
-          image: ghcr.io/sos-hub-vn/sos-backend:prod-latest
+          image: ghcr.io/sos-hub-vn/sos-backend:prod-latest #TODO
           imagePullPolicy: IfNotPresent
           ports:       
             - containerPort: 8080      
