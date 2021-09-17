@@ -40,6 +40,7 @@
 -define(PATH_SUGGEST, <<"suggest">>).
 -define(PATH_BOOKMARK, <<"bookmark">>).
 -define(PATH_STATUS, <<"status">>).
+-define(PATH_VERIFY, <<"verify">>).
 
 
 init() ->
@@ -69,6 +70,9 @@ allowed_methods(_Id, ?PATH_SUGGEST) ->
 allowed_methods(_Id, ?PATH_BOOKMARK) ->
     [?HTTP_POST];
 
+allowed_methods(_Id, ?PATH_VERIFY) ->
+    [?HTTP_POST];
+
 allowed_methods(_Id, ?PATH_STATUS) ->
     [?HTTP_POST].
 
@@ -86,6 +90,8 @@ resource_exists(_Id, ?PATH_SUPPORT) -> true;
 resource_exists(_Id, ?PATH_BOOKMARK) -> true;
 
 resource_exists(_Id, ?PATH_STATUS) -> true;
+
+resource_exists(_Id, ?PATH_VERIFY) -> true;
 
 resource_exists(_Id, ?PATH_SUGGEST) -> true.
 
@@ -117,6 +123,10 @@ authenticate(Context, _Id, ?PATH_BOOKMARK) ->
     app_util:oauth2_authentic(Token, Context);
 
 authenticate(Context, _Id, ?PATH_STATUS) ->
+    Token = cb_context:auth_token(Context),
+    app_util:oauth2_authentic(Token, Context);
+
+authenticate(Context, _Id, ?PATH_VERIFY) ->
     Token = cb_context:auth_token(Context),
     app_util:oauth2_authentic(Token, Context);
 
@@ -176,6 +186,9 @@ authorize_verb(Context, _Id, ?PATH_BOOKMARK, ?HTTP_POST) ->
     Role = cb_context:role(Context),
     authorize_util:check_role(Role, ?USER_ROLE_USER_GE);
 
+authorize_verb(Context, _Id, ?PATH_VERIFY, ?HTTP_POST) -> 
+    Role = cb_context:role(Context),
+    authorize_util:check_role(Role, ?USER_ROLE_OPERATOR_GE);    
 
 authorize_verb(Context, _Id, ?PATH_STATUS, ?HTTP_POST) -> 
     Role = cb_context:role(Context),
@@ -245,6 +258,7 @@ handle_put(Context) ->
         Info = maps:merge(BaseInfo, #{
             id => Id,
             status => ?SOS_REQUEST_STATUS_OPEN,
+            is_joined => false,
             requester_type => RequesterType,
             requester_info => RequesterInfo
         }),
@@ -263,19 +277,19 @@ handle_post(Context, ?PATH_SEARCH) ->
         Long = zt_util:to_str(wh_json:get_value(<<"long_position">>, ReqJson, <<"0.0">>)),
         Lat = zt_util:to_str(wh_json:get_value(<<"lat_position">>, ReqJson, <<"0.0">>)),
         CurrentLocation  =  Lat ++ "," ++ Long,
-        %Unit = proplists:get_value(<<"unit">>, ReqJson, <<>>),
         Unit = <<"km">>,
-        % Distance = zt_util:to_str(proplists:get_value(<<"distance">>, Data, <<"5">>)S),
         SortCondsList = wh_json:get_value(<<"sorts">>, ReqJson, [[{<<"sort_distance">>,asc}],[{<<"sort_priority">>,asc}]]),
         SortConds = sos_request_handler:deformat_sorts(SortCondsList, zt_util:to_bin(CurrentLocation), Unit),
-        % lager:info("SortConds: ~p ~n",[SortConds]),
         Conds = sos_request_handler:build_search_conditions(CurrentLocation, ReqJson),
         lager:info("Sort: ~p ~n Conds: ~p ~n",[ SortConds, Conds]),
         QueryJson = cb_context:query_string(Context),
         Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
         Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
-        lager:debug("search final conditions: ~p~n",[Conds]),
-        {Total, Requests} = sos_request_db:find_count_by_conditions(Conds, SortConds, Limit, Offset),
+        FinalConds = [{status,'not in',[?SOS_REQUEST_STATUS_RESOLVED,?SOS_REQUEST_STATUS_REJECTED]}|Conds],
+        lager:debug("search FinalConds: ~p~n",[FinalConds]),
+        FinalSortConds = [{<<"sort_created_time">>,asc}|SortConds],
+        lager:debug("search FinalSortConds: ~p~n",[FinalSortConds]),
+        {Total, Requests} = sos_request_db:find_count_by_conditions(FinalConds, FinalSortConds, Limit, Offset),
         lager:info("Total Request  ~p found ~n",[Total]),
         UserId = cb_context:user_id(Context),
     
@@ -284,7 +298,9 @@ handle_post(Context, ?PATH_SEARCH) ->
             lists:map(fun(Info) -> 
                 NewInfo = sos_request_handler:maybe_filter_bookmark(?OBJECT_TYPE_USER, UserId, Info),
                 NewInfo2 = sos_request_handler:maybe_filter_bookmark_by_group(FilteredGroups, NewInfo),
-                get_sub_fields(NewInfo2,[bookmarks])
+                get_sub_fields(NewInfo2,[bookmarks]),
+                IsSharePhoneNumber = maps:get(share_phone_number,NewInfo2,<<>>),
+                sos_request_handler:maybe_hide_phone_number(IsSharePhoneNumber,NewInfo2)
             end,Requests),
 
         PropsRequestsWithTotal = 
@@ -346,31 +362,33 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                     supporters := SupportersDb
                 } = RequestInfo ->
                     case sos_request_handler:is_joined_request(Type,SupporterId,RequestInfo) of 
-                    false -> 
-                        UpdatedTime = zt_datetime:get_now(),
-                        NewStatus = sos_request_handler:change_request_status(StatusDb, ?SOS_REQUEST_STATUS_ACCEPTED),
-                        SuppoterInfo = maps:merge(BaseSupporterInfo, #{
-                            schedule_support_date => wh_json:get_value(<<"support_date">>, ReqJson,<<>>),
-                            description => wh_json:get_value(<<"description">>, ReqJson,<<>>),
-                            status => ?SOS_TASK_STATUS_OPEN
-                        }),
-                        NewSupporters = [SuppoterInfo|SupportersDb],
-                        NewInfo =  maps:merge(RequestInfo,#{
-                                status => NewStatus,
-                                supporters => NewSupporters,
-                                updated_by => app_util:get_requester_id(Context),
-                                updated_time => UpdatedTime
-                        }),
-                        sos_request_db:save(NewInfo),
-                        cb_context:setters(Context,
-                                        [{fun cb_context:set_resp_data/2, NewInfo},
-                                            {fun cb_context:set_resp_status/2, success}]);
-                    true -> 
-                        cb_context:setters(Context,
-                        [{fun cb_context:set_resp_error_msg/2, <<"You are always join this request">>},
-                            {fun cb_context:set_resp_status/2, <<"error">>},
-                            {fun cb_context:set_resp_error_code/2, 400}])
-                end;
+                        false -> 
+                            UpdatedTime = zt_datetime:get_now(),
+                            NewStatus = sos_request_handler:change_request_status(StatusDb, ?SOS_REQUEST_STATUS_ACCEPTED),
+                            SupporterInfo = maps:merge(BaseSupporterInfo, #{
+                                schedule_support_date => wh_json:get_value(<<"support_date">>, ReqJson,<<>>),
+                                description => wh_json:get_value(<<"description">>, ReqJson,<<>>),
+                                is_support_all => wh_json:get_value(<<"is_support_all">>, ReqJson,<<"false">>),
+                                status => ?SOS_TASK_STATUS_OPEN
+                            }),
+                            NewSupporters = [SupporterInfo|SupportersDb],
+                            NewInfo =  maps:merge(RequestInfo,#{
+                                    is_joined => true,
+                                    status => NewStatus,
+                                    supporters => NewSupporters,
+                                    updated_by => app_util:get_requester_id(Context),
+                                    updated_time => UpdatedTime
+                            }),
+                            sos_request_db:save(NewInfo),
+                            cb_context:setters(Context,
+                                            [{fun cb_context:set_resp_data/2, NewInfo},
+                                                {fun cb_context:set_resp_status/2, success}]);
+                        true -> 
+                            cb_context:setters(Context,
+                            [{fun cb_context:set_resp_error_msg/2, <<"You are always join this request">>},
+                                {fun cb_context:set_resp_status/2, <<"error">>},
+                                {fun cb_context:set_resp_error_code/2, 400}])
+                    end;
                         
                 _ ->
                     cb_context:setters(Context,
@@ -471,6 +489,45 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                     {fun cb_context:set_resp_status/2, <<"error">>},
                     {fun cb_context:set_resp_error_code/2, 404}
                 ])
+        end;
+
+    handle_post(Context, Id,?PATH_VERIFY) ->
+        case sos_request_db:find(Id) of 
+            notfound -> 
+                cb_context:setters(Context,
+                    [{fun cb_context:set_resp_error_msg/2, <<"Sos Request Not Found">>},
+                    {fun cb_context:set_resp_status/2, 'error'},
+                    {fun cb_context:set_resp_error_code/2, 404}]
+                );
+            InfoDb -> 
+             case sos_request_handler:maybe_verify(InfoDb, Context) of 
+                {success,NewInfo} -> 
+                    cb_context:setters(Context
+                                    ,[{fun cb_context:set_resp_data/2, NewInfo}
+                                    ,{fun cb_context:set_resp_status/2, 'success'}
+                                    ]);  
+                    {warning,WarningMsg} ->
+                        Context2 = api_util:validate_error(Context, <<"status">>, <<"invalid">>, WarningMsg),
+                        cb_context:setters(Context2,[
+                            {fun cb_context:set_resp_error_msg/2, WarningMsg},
+                            {fun cb_context:set_resp_status/2, <<"error">>},
+                            {fun cb_context:set_resp_error_code/2, 400}
+                        ]);
+                    {error,forbidden} -> 
+                        Context2 = api_util:validate_error(Context, <<"status">>, <<"forbidden">>, forbidden),
+                        cb_context:setters(Context2,[
+                            {fun cb_context:set_resp_error_msg/2, forbidden},
+                            {fun cb_context:set_resp_status/2, <<"error">>},
+                            {fun cb_context:set_resp_error_code/2, 403}
+                        ]);
+                    {error,Error} -> 
+                        Context2 = api_util:validate_error(Context, <<"status">>, <<"invalid">>, Error),
+                        cb_context:setters(Context2,[
+                            {fun cb_context:set_resp_error_msg/2, Error},
+                            {fun cb_context:set_resp_status/2, <<"error">>},
+                            {fun cb_context:set_resp_error_code/2, 400}
+                        ])
+             end
         end;
 
 handle_post(Context, Id,?PATH_STATUS) ->
@@ -579,18 +636,19 @@ get_info(ReqJson, Context) ->
     Description = wh_json:get_value(<<"description">>, ReqJson, <<>>),
     SupportTypes = zt_util:to_map_list(wh_json:get_value(<<"support_types">>, ReqJson, [])),
     Location = wh_json:get_value(<<"location">>, ReqJson, <<"0.0,0.0">>),
-    AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
+    AddressInfo = province_handler:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
     ContactInfo = zt_util:to_map(wh_json:get_value(<<"contact_info">>, ReqJson, [])),
     SharePhoneNumbebr = wh_json:get_value(<<"share_phone_number">>, ReqJson, ?SHARE_PHONE_NUMBER_TYPE_PRIVATE),
     Medias = zt_util:to_map_list(wh_json:get_value(<<"medias">>, ReqJson, [])),
     ObjectStatus = zt_util:to_map_list(wh_json:get_value(<<"requester_object_status">>, ReqJson, [])),
+    Type = wh_json:get_value(<<"type">>, ReqJson, ?SOS_REQUEST_TYPE_ASK),
     #{
-      type => wh_json:get_value(<<"type">>, ReqJson, ?SOS_REQUEST_TYPE_ASK),
+      type => Type,
       subject => Subject,
       priority_type => PriorityType,
       description => Description,
-      support_types => filter_support_types(SupportTypes),
-      color_info => sos_request_handler:calculate_color_type(SupportTypes),
+      support_types => sos_request_handler:filter_support_types(SupportTypes),
+      color_info => sos_request_handler:calculate_color_type(Type, SupportTypes),
       location => Location,
       address_info => AddressInfo,
       contact_info => ContactInfo,
@@ -601,10 +659,6 @@ get_info(ReqJson, Context) ->
       created_time => zt_datetime:get_now()
      }.
 
-filter_support_types(SupportTypesList) -> 
-        lists:map(fun(SupportTypeMap) -> 
-            maps:with([<<"type">>,<<"name">>],SupportTypeMap)
-        end,SupportTypesList).
 %%%%%%%%%%%%%%%%%%%%%%%%%%
 %%  INTERNAL FUNCTIONS  %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -651,10 +705,9 @@ validate_request(Id, Context, ?HTTP_POST) ->
         fun sos_request_handler:validate_share_phone_number_update/2
     ],
     lists:foldl(fun (F, C) ->
-                        F(Id,ReqJson, C)
+                        F(ReqJson, C)
                 end,
-                Context1,
-                ValidateFuns);
+    Context1,ValidateFuns);
 
 validate_request(_Id, Context, ?HTTP_DELETE) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
@@ -709,6 +762,18 @@ validate_request(_Id, ?PATH_STATUS, Context, ?HTTP_POST) ->
     Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
     ValidateFuns = [
         fun sos_request_handler:validate_update_status/2
+    ],
+    lists:foldl(fun (F, C) ->
+                        F(ReqJson, C)
+                end,
+    Context1,ValidateFuns);
+
+
+validate_request(_Id, ?PATH_VERIFY, Context, ?HTTP_POST) ->
+    ReqJson = cb_context:req_json(Context),
+    Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
+    ValidateFuns = [
+        fun sos_request_handler:validate_update_verify_status/2
     ],
     lists:foldl(fun (F, C) ->
                         F(ReqJson, C)

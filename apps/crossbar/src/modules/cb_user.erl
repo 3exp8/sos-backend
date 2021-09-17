@@ -12,6 +12,7 @@
 -define(PATH_SUGGEST, <<"suggest">>).
 -define(PATH_BOOKMARK, <<"bookmark">>).
 -define(PATH_MYTASKS, <<"tasks">>).
+-define(PATH_MYREQUESTS, <<"sos_requests">>).
 
 -export([init/0
          ,allowed_methods/0
@@ -103,7 +104,17 @@ authenticate_with_method(Context, ?HTTP_GET) ->
 %% /api/v1/users/{id}
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
 authenticate(_Context, ?PATH_CONFIRM) -> true;
+
 authenticate(_Context, ?PATH_RESEND) -> true;
+
+authenticate(Context, ?PATH_SEARCH) -> 
+
+  Token = cb_context:auth_token(Context),
+  case app_util:oauth2_authentic(Token, Context) of 
+        false -> true;
+        Res -> Res
+  end;
+
 authenticate(Context, _Id) ->
   Token = cb_context:auth_token(Context),
   app_util:oauth2_authentic(Token, Context).
@@ -141,6 +152,7 @@ authorize(_Context, ?PATH_SEARCH = _Path) -> true;
 authorize(_Context, ?PATH_BOOKMARK = _Path) -> true;
 authorize(_Context, ?PATH_SUGGEST = _Path) -> true;
 authorize(_Context, ?PATH_MYTASKS = _Path) -> true;
+authorize(_Context, ?PATH_MYREQUESTS = _Path) -> true;
 
 authorize(Context, ?PATH_CREATE = Path) ->
   authorize_verb(Context, Path, cb_context:req_verb(Context)).
@@ -265,6 +277,49 @@ handle_get({Req, Context}, ?PATH_MYTASKS) ->
                         'and',[
                           {<<"supporters.type">>,?OBJECT_TYPE_GROUP},
                           {<<"supporters.id">>,'in',GroupIds}
+                      ]}
+                  ]
+              }], PropQueryJson, Limit, Offset),
+
+    {Req, cb_context:setters(Context
+                    ,[{fun cb_context:set_resp_data/2, SosRequests}
+                    ,{fun cb_context:set_resp_status/2, 'success'}
+           ])};
+    _ ->
+      Context2 = api_util:validate_error(Context, <<"user">>, <<"not_found">>, <<"user_notfound">>), 
+      {Req, cb_context:setters(Context2, [
+                  {fun cb_context:set_resp_error_msg/2, <<"User Not Found">>},
+                  {fun cb_context:set_resp_status/2, <<"error">>},
+                  {fun cb_context:set_resp_error_code/2, 404}
+      ])}
+  end;
+
+handle_get({Req, Context}, ?PATH_MYREQUESTS) ->
+  UserId = cb_context:user_id(Context),
+  case user_db:find(UserId) of 
+    #{} = UserInfo -> 
+   
+      Groups = group_handler:find_groups_by_user(UserId),
+      GroupIds = 
+        lists:map(fun(#{id := GroupId}) -> 
+          GroupId
+        end,Groups),
+    lager:debug("UserId: ~p, GroupIds: ~p~n",[UserId, GroupIds]),
+    QueryJson = cb_context:query_string(Context),
+    Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
+    Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
+    PropQueryJson = wh_json:to_proplist(QueryJson),
+      SosRequests = 
+                  sos_request_db:find_by_conditions([
+                    {'or',[
+                      {'and',[
+                          {<<"requester_type">>,?OBJECT_TYPE_USER},
+                          {<<"requester_info.id">>,UserId}
+                      ]}
+                      ,{
+                        'and',[
+                          {<<"requester_type">>,?OBJECT_TYPE_GROUP},
+                          {<<"requester_info.id">>,'in',GroupIds}
                       ]}
                   ]
               }], PropQueryJson, Limit, Offset),
@@ -590,21 +645,44 @@ handle_post(Context, ?PATH_PASSWORD_CHANGE) ->
 
 handle_post(Context, ?PATH_SEARCH) ->  
 ReqJson =  cb_context:req_json(Context),
-PhoneNumber  = wh_json:get_value(<<"phone_number">>, ReqJson), 
+UserId = cb_context:user_id(Context),
+PhoneNumber  = zt_util:normalize_string(wh_json:get_value(<<"phone_number">>, ReqJson)),
 case user_db:find_by_phone_number(PhoneNumber) of 
 [UserInfo] -> 
-    RespData  = maps:with([id,first_name,last_name, phone_number,address,avatar],UserInfo),
+    
+    RespData  =
+        case zt_util:nvl(UserId, <<>>) of 
+          <<>> -> #{
+                    phone_number => PhoneNumber,
+                    is_existed => true
+                  };
+          _ -> 
+            maps:with([id,first_name,last_name, phone_number,address,avatar],UserInfo)
+        end,
     cb_context:setters(Context,[
       {fun cb_context:set_resp_data/2, RespData}
       ,{fun cb_context:set_resp_status/2, 'success'}
     ]);
  _ -> 
-    Context2 = api_util:validate_error(Context, <<"phone_number">>, <<"not_found">>, <<"phone_number_notfound">>), 
-    cb_context:setters(Context2,
-                                [{fun cb_context:set_resp_error_msg/2, <<"Phone Number Notfound">>},
-                                {fun cb_context:set_resp_status/2, <<"error">>},
-                                {fun cb_context:set_resp_error_code/2, 404}
-                                ]) 
+        case zt_util:nvl(UserId, <<>>) of 
+          <<>> -> 
+            RespData = #{
+                    phone_number => PhoneNumber,
+                    is_existed => false
+                  },
+              cb_context:setters(Context,[
+                {fun cb_context:set_resp_data/2, RespData}
+                ,{fun cb_context:set_resp_status/2, 'success'}
+              ]);
+          _ -> 
+          Context2 = api_util:validate_error(Context, <<"phone_number">>, <<"not_found">>, <<"phone_number_notfound">>), 
+          cb_context:setters(Context2,
+                                      [{fun cb_context:set_resp_error_msg/2, <<"Phone Number Notfound">>},
+                                      {fun cb_context:set_resp_status/2, <<"error">>},
+                                      {fun cb_context:set_resp_error_code/2, 404}
+                                      ]) 
+
+          end
 end;
 
 handle_post(Context, ?PATH_LOGOUT) ->

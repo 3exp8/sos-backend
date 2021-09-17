@@ -1,0 +1,18 @@
+##################################################################################################
+#  Sos-backend Load Balancer Service
+##################################################################################################
+apiVersion: v1
+kind: Service
+metadata: 
+  name: sos-backend-svc
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb-ip
+spec: 
+  type: LoadBalancer
+  selector:   
+    app: sos-backend
+  ports:  
+    - name: sos-backend-svc-8080-8080
+      port: 8080
+      protocol: TCP
+      targetPort: 8080

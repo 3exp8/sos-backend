@@ -9,6 +9,7 @@
             find/1,
             find_all/0,
             find_all/2,
+            find_by_status/1,
             find_by_conditions/4,
             reindex/0,
             reindex/1
@@ -53,6 +54,10 @@ find_all(Limit, Offset) ->
   sumo:find_all(?DOC, [], Limit, Offset).
 
 
+-spec find_by_status(binary()) -> [user_doc:user()].
+find_by_status(Status) ->  
+  sumo:find_by(?DOC, [{status, Status}]).
+
 -spec find_by_conditions(conditions(),conditions(),non_neg_integer(), non_neg_integer()) -> [?DOC:info()].
 find_by_conditions(AccountQuery, Query, Limit, Offset) ->
   Conditions = build_query(AccountQuery, Query), 
@@ -65,6 +70,8 @@ build_sort([], []) ->
 build_sort(Query, [{Key, Value}| Tail]) when is_list(Query) -> 
 
   Condition = if  
+        Key == <<"sort_order">> -> {order, Value};
+        Key == <<"sort_code">> -> {code, Value};
         Key == <<"sort_created_by">> -> {created_by, Value};
         Key == <<"sort_created_time">> -> {created_time, Value};
         Key == <<"sort_updated_by">> -> {updated_by, Value};
@@ -85,7 +92,18 @@ build_sort(_Query, _Other) ->
   build_sort([], []).
 
 build_query(Query, [{Key, Value}| Tail]) when is_list(Query) -> 
-  Condition = if  
+  Condition = if
+
+        Key == <<"filter_status">>  -> {status, Value};
+        Key == <<"filter_codename">>  ->
+          SValue = zt_util:to_str(Value),
+          {'or',[
+            {codename, Value},
+            {codename, 'like', "*"++SValue},
+            {codename, 'like', SValue++"*"},
+            {codename, 'like', "*"++SValue++"*"}
+          ]};
+        Key == <<"filter_name">>  -> {name, Value};
         Key == <<"filter_created_by">>  -> {created_by, Value};
         Key == <<"filter_created_time_gt">>  -> {created_time, '>', datetime_util:utc_format(Value)};
         Key == <<"filter_created_time_gte">>  -> {created_time, '>=', datetime_util:utc_format(Value)};

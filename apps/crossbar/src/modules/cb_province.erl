@@ -11,40 +11,30 @@
 
 -include("crossbar.hrl").
 
--export([init/0
+-export([
+      init/0
 	,validate/1
 	,validate/2
     ,validate/3
-    ,validate/4
 	,resource_exists/0
 	,resource_exists/1
     ,resource_exists/2
-    ,resource_exists/3
 	,authenticate/1
 	,authenticate/2
     ,authenticate/3
-    ,authenticate/4
 	,authorize/1
     ,authorize/2
     ,authorize/3
-    ,authorize/4
 	,allowed_methods/0
 	,allowed_methods/1
     ,allowed_methods/2
-    ,allowed_methods/3
 	,handle_post/2
 	,handle_get/1
 	,handle_get/2
     ,handle_get/3
-    ,handle_get/4
 ]).
 
--export([
-    find_district_by_code/2,
-    find_Ward_by_code/2,
-    get_province_district_ward_info/3,
-    get_address_detail_info/1
-]).
+-define(PATH_PROVINCE,<<"province">>).
 init() ->
 	_ = crossbar_bindings:bind(<<"*.resource_exists.provinces">>, ?MODULE, 'resource_exists'),
     _ = crossbar_bindings:bind(<<"*.validate.provinces">>, ?MODULE, 'validate'),
@@ -65,102 +55,87 @@ allowed_methods() ->
 allowed_methods(_Id) ->
 	[?HTTP_GET, ?HTTP_POST].
 
-allowed_methods(_Id,_Id2) ->
-	[?HTTP_GET].
-
-allowed_methods(_Id,_Id2,_Id3) ->
+allowed_methods(_Id,_Path) ->
 	[?HTTP_GET].
 
 -spec resource_exists() -> 'true'.
 -spec resource_exists(path_token()) -> 'true'.
 -spec resource_exists(path_token(),path_token()) -> 'true'.
--spec resource_exists(path_token(),path_token(),path_token()) -> 'true'.
 
 %% /api/v1/demo
 resource_exists() -> 'true'.
 
 %% /api/v1/demo/{id}
 resource_exists(_Id) -> 'true'.
-
-resource_exists(_Id1, _Id2) -> 'true'.
-
-resource_exists(_Id, _Id2, _Id3) -> 'true'.
+resource_exists(_Id,_Path) -> 'true'.
 
 
 -spec authenticate(cb_context:context()) -> boolean().
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
 -spec authenticate(cb_context:context(), path_token(), path_token()) -> boolean().
--spec authenticate(cb_context:context(), path_token(), path_token(), path_token()) -> boolean().
 
 authenticate(Context) -> 
 	true.
 	
-authenticate(Context, _Id) -> true.
-authenticate(Context, _Id1,_Id2) -> true.
+authenticate(Context, Id) -> 
+    authenticate_verb(Context, Id, cb_context:req_verb(Context)).
 
-authenticate(Context, _Id,_Id2,_Id3) -> true.
+authenticate_verb(_Context, _Id, ?HTTP_GET) -> true;
 
+authenticate_verb(Context, _Id, _) -> 
+    Token = cb_context:auth_token(Context),
+    app_util:oauth2_authentic(Token, Context).
+
+authenticate(_Context, _Id, _) ->  true.
 
 -spec authorize(cb_context:context()) -> boolean().
 -spec authorize(cb_context:context(), path_token()) -> boolean().
 -spec authorize(cb_context:context(), path_token(), path_token()) -> boolean().
--spec authorize(cb_context:context(), path_token(), path_token(), path_token()) -> boolean().
 
 authorize(_Context) ->
     true.
 
-authorize(_Context, _Id) -> true. 
-authorize(_Context, _Id,_Id1) -> true. 
-authorize(_Context, _Id,_Id1,_Id2) -> true. 
+authorize(Context, Id) ->  
+    authorize_verb(Context, Id, cb_context:req_verb(Context)).
+
+authorize_verb(_Context, _Id, ?HTTP_GET) -> true;
+
+authorize_verb(Context, _Id, _) -> 
+    Role = cb_context:role(Context),
+    authorize_util:check_role(Role, ?USER_ROLE_ADMIN).
+
+authorize(_Context, _Id,_Path) -> true. 
 
 -spec validate(cb_context:context()) ->  cb_context:context().
 -spec validate(cb_context:context(), path_token()) ->  cb_context:context().
 -spec validate(cb_context:context(), path_token(), path_token()) ->  cb_context:context().
--spec validate(cb_context:context(), path_token(), path_token(), path_token()) ->  cb_context:context().
 
 %% Validate resource : /api/v1/test
 validate(Context) ->
-    validate_test(Context, cb_context:req_verb(Context)).
+    validate_request(Context, cb_context:req_verb(Context)).
 
 %% Validate resource : /api/v1/test/{id}
 validate(Context, Id) ->
-    validate_test(Context, Id, cb_context:req_verb(Context)).   
+    validate_request(Id, Context, cb_context:req_verb(Context)).   
 
-validate(Context, Id, Id2) ->
-    validate_test(Context, Id, cb_context:req_verb(Context)). 
+validate(Context, Id, Path) ->
+    validate_request(Id, Path, Context, cb_context:req_verb(Context)). 
 
-validate(Context, Id, Id2, Id3) ->
-    validate_test(Context, Id, cb_context:req_verb(Context)). 
-
-%% GET /api/v1/test
-validate_test(Context, ?HTTP_GET = Verb) ->
-	validate_request(Context, Verb).
-	
-%% GET /api/v1/test/{id}
-validate_test(Context, Id, ?HTTP_GET = Verb) ->
-	validate_request(Id, Context, Verb);
-
-validate_test(Context, Id, ?HTTP_POST = Verb) ->
-	validate_request(Id, Context, Verb).
-
-get_sub_fields_provinces(Info) -> 
-Fields = [districts] ,
-maps:without(Fields, Info).
-
-get_sub_fields_districts(Info) -> 
-Fields = [<<"wards">>] ,
-maps:without(Fields, Info).
 
 handle_get({Req, Context}) ->
-	lager:info("--------- Get provinces 1 ~n",[]),
     QueryJson = cb_context:query_string(Context),
     Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
     Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
+    IsFull = wh_json:get_value(<<"is_full">>, QueryJson, <<"false">>),
     PropQueryJson = wh_json:to_proplist(QueryJson),
-	Provinces = province_db:find_by_conditions([],PropQueryJson,Limit,Offset),
-    lager:info("--------- Get provinces 2 ~n",[]),
+    Conds = 
+        case IsFull of 
+            <<"true">> -> [];
+            _ -> [{status,<<"active">>}]
+        end,
+	Provinces = province_db:find_by_conditions(Conds,[{<<"sort_order">>, asc}|PropQueryJson],Limit,Offset),
     PropProvinces = lists:map(fun(Info) ->
-        get_sub_fields_provinces(Info) end, 
+            get_sub_fields_provinces(Info) end, 
         Provinces),
 	Context1 = cb_context:setters(Context
                        ,[{fun cb_context:set_resp_data/2, PropProvinces}
@@ -169,7 +144,6 @@ handle_get({Req, Context}) ->
 	{Req, Context1}.
 
 handle_get({Req, Context},Id) ->
-	lager:info("--------- get province by id 1: ~p ~n",[Id]),
     Context1 = 
     case province_db:find(Id) of 
     notfound -> 
@@ -181,10 +155,17 @@ handle_get({Req, Context},Id) ->
     Info -> 
 
             Districts = maps:get(districts,Info,[]),
-            PropDistricts = lists:map(fun(Info) ->
-                get_sub_fields_districts(Info) end, Districts),
+            PropDistricts = lists:map(fun(DistrictInfo) ->
+                get_sub_fields_districts(DistrictInfo) 
+            end, Districts),
+
+            SortedDistricts = 
+                lists:sort(fun(#{<<"short_codename">> := Name1}, #{<<"short_codename">> := Name2}) -> 
+                    Name1 < Name2
+                end,PropDistricts),
+
             NewInfo = maps:merge(Info, #{
-                districts => PropDistricts
+                districts => SortedDistricts
             }),
             lager:info("--------- Get provinces by id 2 ~n",[]),
             cb_context:setters(Context
@@ -194,26 +175,13 @@ handle_get({Req, Context},Id) ->
     end,
 	{Req, Context1}.
 
-find_district_by_code([], _Code) -> notfound;
-find_district_by_code([#{<<"code">> := Code} = Info|DistrictList], Code) -> Info;
-
-find_district_by_code([Info|WardList], Code) -> 
-    lager:debug("find_Ward_by_code ~p~n",[Info]),
-    find_district_by_code(WardList,Code).
-        
-find_Ward_by_code([], _Code) -> notfound;
-find_Ward_by_code([#{<<"code">> := Code} = Info|WardList], Code) -> Info;
-
-find_Ward_by_code([Info|WardList], Code) -> 
-    lager:debug("find_Ward_by_code ~p~n",[Info]),
-    find_Ward_by_code(WardList,Code).
 
 handle_get({Req, Context},Id,DistrictCode) ->
 	lager:info("--------- get wards by id 1: ~p, DistrictCode: ~p ~n",[Id,DistrictCode]),
     #{districts := Districts} = province_db:find(Id),
     Code = zt_util:to_integer(DistrictCode),
     Context1 = 
-    case find_district_by_code(Districts,Code) of 
+    case province_handler:find_district_by_code(Districts,Code) of 
     notfound -> 
             cb_context:setters(Context,
             [{fun cb_context:set_resp_error_msg/2, <<"District Not Found">>},
@@ -221,7 +189,6 @@ handle_get({Req, Context},Id,DistrictCode) ->
             {fun cb_context:set_resp_error_code/2, 404}
             ]);
     Info -> 
-        lager:info("--------- Get districts by id 2 ~n",[]),
 	    cb_context:setters(Context
                        ,[{fun cb_context:set_resp_data/2, Info}
                          ,{fun cb_context:set_resp_status/2, 'success'}
@@ -229,16 +196,7 @@ handle_get({Req, Context},Id,DistrictCode) ->
     end,
 	{Req, Context1}.
 
-handle_get({Req, Context},Id,Id1,Id2) ->
-	lager:info("--------- get province by id 1: ~p ~n",[Id]),
-    Info = province_db:find(Id),
-	lager:info("--------- Get provinces by id 2 ~n",[]),
-	Context1 = cb_context:setters(Context
-                       ,[{fun cb_context:set_resp_data/2, Info}
-                         ,{fun cb_context:set_resp_status/2, 'success'}
-                        ]),
-	{Req, Context1}.
-handle_post(Context, <<"province">>) ->
+handle_post(Context, ?PATH_PROVINCE) ->
 	ReqJson =  cb_context:req_json(Context),
 	Records = wh_json:get_value(<<"data">>, ReqJson, []),
 	lager:debug("record length: ~p~n",[length(Records)]),
@@ -250,71 +208,44 @@ handle_post(Context, <<"province">>) ->
 		id => zt_util:get_uuid()
 	}),
 	province_db:save(Info),
-	% Data = 
-	% 	lists:foreach(fun(RecordInfo) -> 
-	% 	lager:debug("record info: ~p~n",[RecordInfo])
-	% 	end,Records),
 	
 	cb_context:setters(Context
 						   ,[{fun cb_context:set_resp_data/2, Res}
 							 ,{fun cb_context:set_resp_status/2, 'success'}
-							]).
+							]);
+
+ handle_post(Context, Id) ->
+	ReqJson =  cb_context:req_json(Context),
+
+    case province_db:find(Id)  of 
+    #{
+        status := StatusDb,
+        order := OrderDb,
+        default_location := DefaultLocationDb
+    } = Info -> 
+        NewInfo = maps:merge(Info, #{
+            status => wh_json:get_value(<<"status">>, ReqJson, StatusDb),
+            order => wh_json:get_value(<<"order">>, ReqJson, OrderDb),
+            default_location => wh_json:get_value(<<"default_location">>, ReqJson, DefaultLocationDb)
+        }),
+        province_db:save(NewInfo),
+        Res = get_sub_fields_provinces(NewInfo),
+	    cb_context:setters(Context
+						   ,[{fun cb_context:set_resp_data/2, Res}
+							 ,{fun cb_context:set_resp_status/2, 'success'}
+							]);
+    _ -> 
+        cb_context:setters(Context,
+                [{fun cb_context:set_resp_error_msg/2, <<"Id Not Found">>},
+                {fun cb_context:set_resp_status/2, 'error'},
+                {fun cb_context:set_resp_error_code/2, 404}]
+            )
+end.
+ 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Internal Function
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-get_address_detail_info(AddressProps) when is_list(AddressProps) -> 
-    get_address_detail_info(zt_util:to_map(AddressProps));
-
-get_address_detail_info(ReqAddressInfoRaw) -> 
-    ReqAddressInfo = zt_util:map_keys_to_atom(ReqAddressInfoRaw),
-    ReqAddressInfoDb = 
-        cb_province:get_province_district_ward_info(
-            maps:get(province_id, ReqAddressInfo,<<>>),
-            maps:get(district_code, ReqAddressInfo, 0),
-            maps:get(ward_code, ReqAddressInfo, 0)
-        ),
-     maps:merge(ReqAddressInfoDb, #{
-        address => maps:get(address, ReqAddressInfo,<<>>)
-    }).
-
-get_province_district_ward_info(<<>>, _DistrictCodeStr, _WardCodeStr) -> #{};
-
-get_province_district_ward_info(ProvinceId, DistrictCodeStr, WardCodeStr) -> 
-    case province_db:find(ProvinceId) of 
-        notfound -> #{};
-        #{
-            name := ProvinceName,
-            districts := Districts 
-        } -> 
-            ProvinceInfo = #{
-                province_id => ProvinceId,
-                province_name => ProvinceName
-            },
-            DistrictCode = zt_util:to_integer(DistrictCodeStr),
-            case find_district_by_code(Districts,DistrictCode) of 
-                notfound -> ProvinceInfo;
-                #{
-                    <<"name">> := DistrictName,
-                    <<"wards">> := Wards
-                } -> 
-                    DistrictInfo = maps:merge(ProvinceInfo, #{
-                        district_code => DistrictCode,
-                        district_name => DistrictName
-                    }), 
-                    WardCode = zt_util:to_integer(WardCodeStr),
-                    case find_district_by_code(Wards,WardCode) of 
-                        notfound -> DistrictInfo;
-                        #{
-                            <<"name">> := WardName
-                        } -> 
-                            maps:merge(DistrictInfo, #{
-                                ward_code => WardCode,
-                                ward_name => WardName
-                            })
-                    end
-            end
-    end.
 
 					   
 validate_request(Context, ?HTTP_GET) ->
@@ -328,8 +259,23 @@ validate_request(_Id, Context, ?HTTP_GET) ->
 	cb_context:setters(Context
                        ,[{fun cb_context:set_resp_status/2, 'success'}]);
 
-					validate_request(_Id, Context, ?HTTP_POST) ->
-						cb_context:setters(Context
-										   ,[{fun cb_context:set_resp_status/2, 'success'}]);
+validate_request(_Id, Context, ?HTTP_POST) ->
+	cb_context:setters(Context
+		,[{fun cb_context:set_resp_status/2, 'success'}]);
+
+
 validate_request(_Id, Context, _Verb) ->
 	Context.
+
+validate_request(_Id, _Path, Context, ?HTTP_GET) ->
+	cb_context:setters(Context
+                       ,[{fun cb_context:set_resp_status/2, 'success'}]).
+
+
+get_sub_fields_provinces(Info) -> 
+    Fields = [districts] ,
+    maps:without(Fields, Info).
+
+get_sub_fields_districts(Info) -> 
+    Fields = [<<"wards">>] ,
+    maps:without(Fields, Info).
