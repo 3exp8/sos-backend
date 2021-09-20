@@ -25,8 +25,7 @@ jobs:
           REMINDER_HOST: ${{ secrets.BACKEND_OTP_REMINDER_HOST }}
           REMINDER_SECRET_KEY: $${ secrets.BACKEND_OTP_SECRET_KEY }}
         run: |
-          sed -i -e 's/<<version>>/${{ github.event.inputs.deploy_version }}/g' \
-                 -e 's/<<caller>>/$CALLER/g' \
+          sed -i -e 's/<<caller>>/$CALLER/g' \
                  -e 's/<<reminder_campaign_id>>/$REMINDER_CAMPAIGN_ID/g'
                  -e 's/<<reminder_host>>/$REMINDER_HOST/g' \
                  -e 's/<<reminder_secret_key>>/$REMINDER_SECRET_KEY/g' \
