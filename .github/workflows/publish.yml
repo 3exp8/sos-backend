@@ -1,0 +1,40 @@
+name: publish
+
+on:
+#   workflow_dispatch:
+#     inputs:
+#       deploy_version:
+#         description: 'The version to be deployed (tag name, ex: v1.0)'
+#         required: true
+  push:
+    branches:
+      - 'github-action'    
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - 
+        name: Checkout
+        uses: actions/checkout@v2
+      - 
+        name: Set release version
+        env:
+          CALLER: ${{ secrets.BACKEND_OTP_CALLER }}
+          REMINDER_CAMPAIGN_ID: ${{ secrets.BACKEND_OTP_REMINDER_CAMPAIGN_ID }}
+          REMINDER_HOST: ${{ secrets.BACKEND_OTP_REMINDER_HOST }}
+          REMINDER_SECRET_KEY: $${ secrets.BACKEND_OTP_SECRET_KEY }}
+        run: |
+          sed -i -e 's/<<version>>/${{ github.event.inputs.deploy_version }}/g' \
+                 -e 's/<<caller>>/$CALLER/g' \
+                 -e 's/<<reminder_campaign_id>>/$REMINDER_CAMPAIGN_ID/g'
+                 -e 's/<<reminder_host>>/$REMINDER_HOST/g' \
+                 -e 's/<<reminder_secret_key>>/$REMINDER_SECRET_KEY/g' \
+                 ./k8s/github-deploy-prod.yaml
+          cat ./k8s/github-deploy-prod.yaml
+#       -
+#         name: Push to k8s
+#         uses: steebchen/kubectl@v2.0.0
+#         with:
+#           config: ${{ secrets.VINACIS_KUBE_CONFIG }}
+#           command: apply -f ./k8s/github-deploy-prod.yaml --namespace=backend
