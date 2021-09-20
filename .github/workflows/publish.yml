@@ -23,12 +23,13 @@ jobs:
           CALLER: ${{ secrets.BACKEND_OTP_CALLER }}
           REMINDER_CAMPAIGN_ID: ${{ secrets.BACKEND_OTP_REMINDER_CAMPAIGN_ID }}
           REMINDER_HOST: ${{ secrets.BACKEND_OTP_REMINDER_HOST }}
-          REMINDER_SECRET_KEY: $${ secrets.BACKEND_OTP_SECRET_KEY }}
+          REMINDER_SECRET_KEY: ${{ secrets.BACKEND_OTP_SECRET_KEY }}
         run: |
-          sed -i -e 's/<<caller>>/$CALLER/g' \
-                 -e 's/<<reminder_campaign_id>>/$REMINDER_CAMPAIGN_ID/g'
-                 -e 's/<<reminder_host>>/$REMINDER_HOST/g' \
-                 -e 's/<<reminder_secret_key>>/$REMINDER_SECRET_KEY/g' \
+          echo ${{ env.CALLER }}
+          sed -i -e 's/<<caller>>/${{ env.CALLER }}/g' \
+                 -e 's/<<reminder_campaign_id>>/${{ env.REMINDER_CAMPAIGN_ID }}/g'
+                 -e 's/<<reminder_host>>/${{ env.REMINDER_HOST }}/g' \
+                 -e 's/<<reminder_secret_key>>/${{ env.REMINDER_SECRET_KEY }}/g' \
                  ./k8s/github-deploy-prod.yaml
           cat ./k8s/github-deploy-prod.yaml
 #       -
