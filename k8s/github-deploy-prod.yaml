@@ -295,11 +295,11 @@ data:
       {
         zt_r2r,[
         {reminder_protocol, https},
-        {reminder_host, ""},
+        {reminder_host, "<<reminder_host>>"}, % secrets.BACKEND_OTP_REMINDER_HOST
         {reminder_port, 443},
-        {reminder_campaign_id, ""},
-        {reminder_secret_key, ""},
-        {caller, ""},
+        {reminder_campaign_id, "<<reminder_campaign_id>>"}, % secrets.BACKEND_OTP_REMINDER_CAMPAIGN_ID
+        {reminder_secret_key, "<<reminder_secret_key>>"}, % secrets.BACKEND_OTP_SECRET_KEY
+        {caller, "<<caller>>"}, % secrets.BACKEND_OTP_CALLER
         {sms_callback_url, "https://dev.api.sos.io/api/v1/sns_callback/sms" },
         {sms_callback_fun, fun sns_util:sms_callback/1 }
         ]},
@@ -346,7 +346,7 @@ spec:
             claimName: sos-backend-pvc
       containers:     
         - name: sos-backend      
-          image: ghcr.io/sos-hub-vn/sos-backend:prod-latest #TODO
+          image: ghcr.io/sos-hub-vn/sos-backend:<<version>> #Image tag version
           imagePullPolicy: IfNotPresent
           ports:       
             - containerPort: 8080      
