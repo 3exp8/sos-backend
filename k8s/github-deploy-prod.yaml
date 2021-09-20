@@ -272,9 +272,11 @@ data:
         ]},
       {erlcloud, 
         [
-          {aws_region, "us-west-2"},
-          {s3_bucket, "covidsos"},
-          {s3_presigned_expired, 300}
+          {aws_region, "<<aws_region>>"}, % secrets.BACKEND_AWS_REGION
+          {s3_bucket, "<<s3_bucket>>"}, % secrets.BACKEND_S3_BUCKET
+          {s3_presigned_expired, 300},
+          {s3_access_key_id, "<<s3_access_key_id>>"}, % secrets.BACKEND_S3_ACCESS_KEY_ID
+          {s3_secret_access_key, "<<s3_secret_access_key>>"} % secrets.BACKEND_S3_SECRET_ACCESS_KEY
       ]},
       {oauth2, [
         {expiry_time, 31536000}, % Expire days
