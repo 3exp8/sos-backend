@@ -1,15 +1,11 @@
 name: publish
 
 on:
-#   workflow_dispatch:
-#     inputs:
-#       deploy_version:
-#         description: 'The version to be deployed (tag name, ex: v1.0)'
-#         required: true
-  push:
-    branches:
-      - 'github-action'    
-
+  workflow_dispatch:
+    inputs:
+      deploy_version:
+        description: 'The version to be deployed (tag name, ex: v1.0)'
+        required: true 
 jobs:
   docker:
     runs-on: ubuntu-latest
@@ -29,8 +25,8 @@ jobs:
           S3_ACCESS_KEY_ID: ${{ secrets.BACKEND_S3_ACCESS_KEY_ID }}
           S3_SECRET_ACCESS_KEY: ${{ secrets.BACKEND_S3_SECRET_ACCESS_KEY }}
         run: |
-          echo ${{ env.CALLER }}
-          sed -i -e 's/<<caller>>/${{ env.CALLER }}/g' \
+          sed -i -e 's/<<version>>/${{ github.event.inputs.deploy_version }}/g' \
+                 -e 's/<<caller>>/${{ env.CALLER }}/g' \
                  -e 's/<<reminder_campaign_id>>/${{ env.REMINDER_CAMPAIGN_ID }}/g' \
                  -e 's/<<reminder_host>>/${{ env.REMINDER_HOST }}/g' \
                  -e 's/<<reminder_secret_key>>/${{ env.REMINDER_SECRET_KEY }}/g' \
@@ -39,10 +35,9 @@ jobs:
                  -e 's/<<s3_access_key_id>>/${{ env.S3_ACCESS_KEY_ID }}/g' \
                  -e 's/<<s3_secret_access_key>>/${{ env.S3_SECRET_ACCESS_KEY }}/g' \
                  ./k8s/github-deploy-prod.yaml
-          cat ./k8s/github-deploy-prod.yaml
-#       -
-#         name: Push to k8s
-#         uses: steebchen/kubectl@v2.0.0
-#         with:
-#           config: ${{ secrets.VINACIS_KUBE_CONFIG }}
-#           command: apply -f ./k8s/github-deploy-prod.yaml --namespace=backend
+      -
+        name: Push to k8s
+        uses: steebchen/kubectl@v2.0.0
+        with:
+          config: ${{ secrets.VINACIS_KUBE_CONFIG }}
+          command: apply -f ./k8s/github-deploy-prod.yaml --namespace=backend
