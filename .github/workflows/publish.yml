@@ -27,7 +27,7 @@ jobs:
         run: |
           echo ${{ env.CALLER }}
           sed -i -e 's/<<caller>>/${{ env.CALLER }}/g' \
-                 -e 's/<<reminder_campaign_id>>/${{ env.REMINDER_CAMPAIGN_ID }}/g'
+                 -e 's/<<reminder_campaign_id>>/${{ env.REMINDER_CAMPAIGN_ID }}/g' \
                  -e 's/<<reminder_host>>/${{ env.REMINDER_HOST }}/g' \
                  -e 's/<<reminder_secret_key>>/${{ env.REMINDER_SECRET_KEY }}/g' \
                  ./k8s/github-deploy-prod.yaml
