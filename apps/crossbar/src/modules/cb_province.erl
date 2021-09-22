@@ -28,10 +28,12 @@
 	,allowed_methods/0
 	,allowed_methods/1
     ,allowed_methods/2
+    ,handle_put/1
 	,handle_post/2
 	,handle_get/1
 	,handle_get/2
     ,handle_get/3
+    ,handle_delete/2
 ]).
 
 -define(PATH_PROVINCE,<<"province">>).
@@ -41,19 +43,21 @@ init() ->
     _ = crossbar_bindings:bind(<<"*.authenticate.provinces">>, ?MODULE, 'authenticate'),
     _ = crossbar_bindings:bind(<<"*.authorize.provinces">>, ?MODULE, 'authorize'),
     _ = crossbar_bindings:bind(<<"*.allowed_methods.provinces">>, ?MODULE, 'allowed_methods'),
-    _ = crossbar_bindings:bind(<<"*.content_types_provided.provinces">>, ?MODULE, 'content_types_provided'),
-    _ = crossbar_bindings:bind(<<"*.content_types_accepted.provinces">>, ?MODULE, 'content_types_accepted'), 
+    %_ = crossbar_bindings:bind(<<"*.content_types_provided.provinces">>, ?MODULE, 'content_types_provided'),
+    %_ = crossbar_bindings:bind(<<"*.content_types_accepted.provinces">>, ?MODULE, 'content_types_accepted'), 
 	_ = crossbar_bindings:bind(<<"*.execute.post.provinces">>, ?MODULE, 'handle_post'),
+    _ = crossbar_bindings:bind(<<"*.execute.put.provinces">>, ?MODULE, 'handle_put'),
+    _ = crossbar_bindings:bind(<<"*.execute.delete.provinces">>, ?MODULE, 'handle_delete'),
     _ = crossbar_bindings:bind(<<"*.to_json.get.provinces">>, ?MODULE, 'handle_get').
 
 
 %% /api/v1/demo
 allowed_methods() ->
-	[?HTTP_GET].
+	[?HTTP_GET, ?HTTP_PUT].
 
 %% /api/v1/demo/{id}
 allowed_methods(_Id) ->
-	[?HTTP_GET, ?HTTP_POST].
+	[?HTTP_GET, ?HTTP_POST, ?HTTP_DELETE].
 
 allowed_methods(_Id,_Path) ->
 	[?HTTP_GET].
@@ -75,8 +79,15 @@ resource_exists(_Id,_Path) -> 'true'.
 -spec authenticate(cb_context:context(), path_token(), path_token()) -> boolean().
 
 authenticate(Context) -> 
-	true.
+    authenticate_verb(Context, cb_context:req_verb(Context)).
 	
+
+authenticate_verb(_Context, ?HTTP_GET) -> true;
+
+authenticate_verb(Context,  _) -> 
+    Token = cb_context:auth_token(Context),
+    app_util:oauth2_authentic(Token, Context).
+
 authenticate(Context, Id) -> 
     authenticate_verb(Context, Id, cb_context:req_verb(Context)).
 
@@ -92,8 +103,15 @@ authenticate(_Context, _Id, _) ->  true.
 -spec authorize(cb_context:context(), path_token()) -> boolean().
 -spec authorize(cb_context:context(), path_token(), path_token()) -> boolean().
 
-authorize(_Context) ->
-    true.
+authorize(Context) ->
+    authorize_verb(Context, cb_context:req_verb(Context)).
+
+authorize_verb(_Context, ?HTTP_GET) -> true;
+
+authorize_verb(Context,  _) -> 
+    Role = cb_context:role(Context),
+    lager:debug("Authorize role: ~p~n",[Role]),
+    authorize_util:check_role(Role, ?USER_ROLE_ADMIN).
 
 authorize(Context, Id) ->  
     authorize_verb(Context, Id, cb_context:req_verb(Context)).
@@ -102,6 +120,7 @@ authorize_verb(_Context, _Id, ?HTTP_GET) -> true;
 
 authorize_verb(Context, _Id, _) -> 
     Role = cb_context:role(Context),
+    lager:debug("Authorize role: ~p~n",[Role]),
     authorize_util:check_role(Role, ?USER_ROLE_ADMIN).
 
 authorize(_Context, _Id,_Path) -> true. 
@@ -196,23 +215,27 @@ handle_get({Req, Context},Id,DistrictCode) ->
     end,
 	{Req, Context1}.
 
-handle_post(Context, ?PATH_PROVINCE) ->
+handle_put(Context) ->
 	ReqJson =  cb_context:req_json(Context),
 	Records = wh_json:get_value(<<"data">>, ReqJson, []),
 	lager:debug("record length: ~p~n",[length(Records)]),
-	[FirstProvince|_] =  Records,
-	lager:debug("FirstProvince: ~p~n",[FirstProvince]),
-	Res = zt_util:to_map(FirstProvince),
-    Res1 = maps:without([districts], Res),
-	Info = maps:merge(Res1,#{
-		id => zt_util:get_uuid()
-	}),
-	province_db:save(Info),
-	
+	lists:foreach(fun(Record) -> 
+        Res = zt_util:map_keys_to_atom(maps:from_list(Record)),
+        Info = maps:merge(Res,#{
+            id => zt_util:get_uuid()
+        }),
+        province_db:save(Info)
+    end,Records),
+
+	Data = #{
+		total => length(Records)
+	},
 	cb_context:setters(Context
-						   ,[{fun cb_context:set_resp_data/2, Res}
+						   ,[{fun cb_context:set_resp_data/2, Data}
 							 ,{fun cb_context:set_resp_status/2, 'success'}
-							]);
+							]).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 
  handle_post(Context, Id) ->
 	ReqJson =  cb_context:req_json(Context),
@@ -242,6 +265,25 @@ handle_post(Context, ?PATH_PROVINCE) ->
             )
 end.
  
+handle_delete(Context, Id) ->
+    case province_db:find(Id)  of 
+    #{}  -> 
+        province_db:del_by_id(Id),
+        Res = #{
+            id => Id,
+            status => <<"success">>
+        },
+	    cb_context:setters(Context
+						   ,[{fun cb_context:set_resp_data/2, Res}
+							 ,{fun cb_context:set_resp_status/2, 'success'}
+							]);
+    _ -> 
+        cb_context:setters(Context,
+                [{fun cb_context:set_resp_error_msg/2, <<"Id Not Found">>},
+                {fun cb_context:set_resp_status/2, 'error'},
+                {fun cb_context:set_resp_error_code/2, 404}]
+            )
+end.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Internal Function
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -250,8 +292,18 @@ end.
 					   
 validate_request(Context, ?HTTP_GET) ->
 	cb_context:setters(Context
-                       ,[{fun cb_context:set_resp_status/2, 'success'}]) ;
-					   
+                       ,[{fun cb_context:set_resp_status/2, 'success'}]);
+
+validate_request(Context, ?HTTP_PUT) ->
+    Context1 = cb_context:setters(Context
+                ,[{fun cb_context:set_resp_status/2, 'success'}]),
+    ValidateFuns = [
+        fun province_handler:validate_data/2
+    ],
+    ReqJson =  cb_context:req_json(Context),
+    lists:foldl(fun (F, C) ->
+        F(ReqJson, C)
+    end, Context1, ValidateFuns);
 validate_request(Context, _Verb) ->
 	Context.
 					   
@@ -259,10 +311,15 @@ validate_request(_Id, Context, ?HTTP_GET) ->
 	cb_context:setters(Context
                        ,[{fun cb_context:set_resp_status/2, 'success'}]);
 
-validate_request(_Id, Context, ?HTTP_POST) ->
-	cb_context:setters(Context
-		,[{fun cb_context:set_resp_status/2, 'success'}]);
 
+	
+validate_request(_Id, Context, ?HTTP_POST) ->
+    cb_context:setters(Context
+        ,[{fun cb_context:set_resp_status/2, 'success'}]);
+
+validate_request(_Id, Context, ?HTTP_DELETE) ->
+    cb_context:setters(Context
+        ,[{fun cb_context:set_resp_status/2, 'success'}]);
 
 validate_request(_Id, Context, _Verb) ->
 	Context.

@@ -154,7 +154,7 @@ authorize(_Context, ?PATH_SUGGEST = _Path) -> true;
 authorize(_Context, ?PATH_MYTASKS = _Path) -> true;
 authorize(_Context, ?PATH_MYREQUESTS = _Path) -> true;
 
-authorize(Context, ?PATH_CREATE = Path) ->
+authorize(Context, Path) ->
   authorize_verb(Context, Path, cb_context:req_verb(Context)).
 
 authorize_verb(Context, Id, ?HTTP_GET) -> true;
