@@ -1,21 +1,20 @@
 ##################################################################################################
 #  Es PersistentVolume
 ##################################################################################################
-kind: PersistentVolume
 apiVersion: v1
+kind: PersistentVolume
 metadata:
   name: es-data-pv
   labels:
     type: local
 spec:
-  storageClassName: ""
+  storageClassName: manual
   capacity:
-    storage: 2Gi
-  volumeMode: Filesystem
+    storage: 10Gi
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: "/home/core"
+    path: "/mnt/data"
 ---
 ##################################################################################################
 #  ES PersistentVolumeClaim
@@ -25,12 +24,12 @@ kind: PersistentVolumeClaim
 metadata:
   name: es-data-pvc
 spec:
+  storageClassName: manual
   accessModes:
     - ReadWriteOnce
-  storageClassName: ""
   resources:
     requests:
-      storage: 1Gi
+      storage: 3Gi
 ---
 ##################################################################################################
 #  ES Service

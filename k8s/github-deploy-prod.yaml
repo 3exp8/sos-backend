@@ -1,44 +1,36 @@
 ##################################################################################################
 #  Persistent Volume to store cluster data
 ##################################################################################################
-apiVersion: v1
 kind: PersistentVolume
-metadata: 
+apiVersion: v1
+metadata:
   name: sos-backend-pv
-  labels: 
+  labels:
     name: sos-backend-pv
-spec: 
-  capacity:   
-    storage: 500Mi 
-  storageClassName: manual 
+spec:
+  storageClassName: "backend-prod"
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
   accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Delete
-  local:
-    path: "~/test/so-data" ##TODO: Change here
-  nodeAffinity: ##TODO: Change all below if necessary
-    required:
-      nodeSelectorTerms:
-      - matchExpressions:
-        - key: kubernetes.io/hostname
-          operator: In
-          values:
-          - k8s-master.sos.local ##TODO: Change here
+    - ReadWriteMany
+  hostPath:
+    path: "/var/local/backend-prod"
 ---
 ##################################################################################################
 #  Persistent Volume Claim to store cluster data
 ##################################################################################################
 apiVersion: v1
 kind: PersistentVolumeClaim
-metadata: 
+metadata:
   name: sos-backend-pvc
 spec: 
   accessModes:    
-    - ReadWriteOnce 
-  storageClassName: manual 
+    - ReadWriteMany
+  storageClassName: "backend-prod"
   resources:   
     requests:     
-      storage: 500Mi
+      storage: 5Gi
 ---
 ##################################################################################################
 #  Backend Config & Start up script 
@@ -61,7 +53,7 @@ data:
     
   vm-sos-backend-0.args: |
     ## Name of the node
-    -name sos_prod@sos-backend-0.sos-backend-hl-svc
+    -name sos_prod@sos-backend-0.sos-backend-svc
     ## Cookie for distributed erlang
     -setcookie sosprod
 
@@ -95,7 +87,7 @@ data:
     ##-env ERL_FULLSWEEP_AFTER 10
   vm-sos-backend-1.args: |
     ## Name of the node
-    -name sos_prod@sos-backend-1.sos-backend-hl-svc
+    -name sos_prod@sos-backend-1.sos-backend-svc
     ## Cookie for distributed erlang
     -setcookie sosprod
 
@@ -189,7 +181,7 @@ data:
           {elasticsearch_backend,
             sumo_backend_elasticsearch,
             [
-            {host, "elastic-0.elasttic-hl-svc"}, %%TODO: Maybe change here for elasticsearch connection
+            {host, "es-service.es-cluster.svc.cluster.local"}, %%TODO: Maybe change here for elasticsearch connection
             {port, 9200},
             {index, "sumo_test"},
             {poolsize, 10}]
@@ -272,9 +264,11 @@ data:
         ]},
       {erlcloud, 
         [
-          {aws_region, "us-west-2"},
-          {s3_bucket, "covidsos"},
-          {s3_presigned_expired, 300}
+          {aws_region, "<<aws_region>>"}, % secrets.BACKEND_AWS_REGION
+          {s3_bucket, "<<s3_bucket>>"}, % secrets.BACKEND_S3_BUCKET
+          {s3_presigned_expired, 300},
+          {s3_access_key_id, "<<s3_access_key_id>>"}, % secrets.BACKEND_S3_ACCESS_KEY_ID
+          {s3_secret_access_key, "<<s3_secret_access_key>>"} % secrets.BACKEND_S3_SECRET_ACCESS_KEY
       ]},
       {oauth2, [
         {expiry_time, 31536000}, % Expire days
@@ -295,11 +289,11 @@ data:
       {
         zt_r2r,[
         {reminder_protocol, https},
-        {reminder_host, ""},
+        {reminder_host, "<<reminder_host>>"}, % secrets.BACKEND_OTP_REMINDER_HOST
         {reminder_port, 443},
-        {reminder_campaign_id, ""},
-        {reminder_secret_key, ""},
-        {caller, ""},
+        {reminder_campaign_id, "<<reminder_campaign_id>>"}, % secrets.BACKEND_OTP_REMINDER_CAMPAIGN_ID
+        {reminder_secret_key, "<<reminder_secret_key>>"}, % secrets.BACKEND_OTP_SECRET_KEY
+        {caller, "<<caller>>"}, % secrets.BACKEND_OTP_CALLER
         {sms_callback_url, "https://dev.api.sos.io/api/v1/sns_callback/sms" },
         {sms_callback_fun, fun sns_util:sms_callback/1 }
         ]},
@@ -327,7 +321,7 @@ metadata:
   labels:   
     app: sos-backend
 spec: 
-  serviceName: "sos-backend-hl-svc" 
+  serviceName: "sos-backend-svc"
   replicas: 2
   selector:
     matchLabels:     
@@ -337,6 +331,19 @@ spec:
       labels:       
         app: sos-backend
     spec:
+      securityContext:
+        runAsUser: 0
+      initContainers:
+        - name: file-permissions
+          image: alpine
+          command: [ 'chown','-R', 'root:root', '/usr/local/sos/data' ]
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - mountPath: /usr/local/sos/data
+              name: sos-backend-data-volume
+          securityContext:
+            privileged: true
+            runAsUser: 0
       volumes:       
         - name: config-volume
           configMap:         
@@ -346,15 +353,25 @@ spec:
             claimName: sos-backend-pvc
       containers:     
         - name: sos-backend      
-          image: ghcr.io/sos-hub-vn/sos-backend:prod-latest #TODO
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/sos-hub-vn/sos-backend:tuan-test #TODO
+          imagePullPolicy: Always
           ports:       
-            - containerPort: 8080      
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: 800m
+              memory: 500Mi
+            requests:
+              cpu: 400m
+              memory: 400Mi
           volumeMounts:
             - name: config-volume         
               mountPath: /usr/local/sos/config
             - name: sos-backend-data-volume         
               mountPath: /usr/local/sos/data
+          securityContext:
+            privileged: true
+            runAsUser: 0
           command:
             - "ash"
           args:  ["config/run-sos-backend.sh","$(POD_NAME)"]
@@ -363,18 +380,8 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.name
----
-##################################################################################################
-#  Sos-backend Headless Service
-##################################################################################################
-apiVersion: v1
-kind: Service
-metadata: 
-  name: sos-backend-hl-svc
-spec: 
-  clusterIP: None
-  selector:   
-    app: sos-backend
+      imagePullSecrets:
+        - name: gitcred
 
 ---
 ##################################################################################################
@@ -382,16 +389,33 @@ spec:
 ##################################################################################################
 apiVersion: v1
 kind: Service
-metadata: 
+metadata:
   name: sos-backend-svc
-  annotations:
-    service.beta.kubernetes.io/aws-load-balancer-type: nlb-ip
-spec: 
-  type: LoadBalancer
-  selector:   
+spec:
+  selector:
     app: sos-backend
-  ports:  
+  ports:
     - name: sos-backend-svc-8080-8080
       port: 8080
       protocol: TCP
-      targetPort: 8080
+      nodePort: 30003
+  type: NodePort
+---
+##################################################################################################
+#  ES Ingress
+##################################################################################################
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend-ingress
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sos-backend-svc
+                port:
+                  number: 8080
