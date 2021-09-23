@@ -36,7 +36,7 @@ jobs:
             ghcr.io/sos-hub-vn/sos-backend:dev-latest
             ghcr.io/sos-hub-vn/sos-backend:dev-1.0.0 
 # TODO: Publish to development's k8s
-       -
+      -
          name: Push to k8s
          uses: steebchen/kubectl@v2.0.0
          with:
