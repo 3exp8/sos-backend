@@ -4,18 +4,18 @@
 kind: PersistentVolume
 apiVersion: v1
 metadata:
-  name: sos-backend-dev-pv
+  name: sos-backend-prod-pv
   labels:
-    name: sos-backend-dev-pv
+    name: sos-backend-prod-pv
 spec:
-  storageClassName: "backend-dev"
+  storageClassName: "backend-prod"
   capacity:
     storage: 10Gi
   volumeMode: Filesystem
   accessModes:
     - ReadWriteMany
   hostPath:
-    path: "/var/local/backend-dev"
+    path: "/var/local/backend-prod"
 ---
 ##################################################################################################
 #  Persistent Volume Claim to store cluster data
@@ -23,11 +23,11 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: sos-backend-dev-pvc
+  name: sos-backend-prod-pvc
 spec: 
   accessModes:    
     - ReadWriteMany
-  storageClassName: "backend-dev"
+  storageClassName: "backend-prod"
   resources:   
     requests:     
       storage: 5Gi
@@ -41,7 +41,7 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata: 
-  name: sos-backend-dev-config
+  name: sos-backend-prod-config
 data:
   run-sos-backend.sh: |
     #!/bin/ash
@@ -51,11 +51,11 @@ data:
     ./bin/sos start
     tail -F log/console.log
     
-  vm-sos-backend-dev-0.args: |
+  vm-sos-backend-prod-0.args: |
     ## Name of the node
-    -name sos@sos-backend-dev-0.sos-backend-dev-svc
+    -name sos@sos-backend-prod-0.sos-backend-prod-svc
     ## Cookie for distributed erlang
-    -setcookie sosdev
+    -setcookie sosprod
 
     -smp enable
 
@@ -70,7 +70,7 @@ data:
 
     -mnesia dump_log_write_threshold 50000
     -mnesia dc_dump_limit 40
-    -mnesia dir '"data/sos-backend-dev-0/mnesia"'
+    -mnesia dir '"data/sos-backend-prod-0/mnesia"'
 
     ## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
     ## (Disabled by default..use with caution!)
@@ -85,11 +85,11 @@ data:
 
     ## Tweak GC to run more often
     ##-env ERL_FULLSWEEP_AFTER 10
-  vm-sos-backend-dev-1.args: |
+  vm-sos-backend-prod-1.args: |
     ## Name of the node
-    -name sos@sos-backend-dev-1.sos-backend-dev-svc
+    -name sos@sos-backend-prod-1.sos-backend-prod-svc
     ## Cookie for distributed erlang
-    -setcookie sosdev
+    -setcookie sosprod
 
     -smp enable
 
@@ -104,7 +104,7 @@ data:
 
     -mnesia dump_log_write_threshold 50000
     -mnesia dc_dump_limit 40
-    -mnesia dir '"data/sos-backend-dev-1/mnesia"'
+    -mnesia dir '"data/sos-backend-prod-1/mnesia"'
 
     ## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
     ## (Disabled by default..use with caution!)
@@ -191,55 +191,55 @@ data:
           {stores, [
             {es_configuration, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_configuration_idx"}
+              {index, "prod_sos_configuration_idx"}
             ]},
             {es_device, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_device_idx"}
+              {index, "prod_sos_device_idx"}
             ]},
             {es_group, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_group_idx"}
+              {index, "prod_sos_group_idx"}
             ]},
             {es_news, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_news_idx"}
+              {index, "prod_sos_news_idx"}
             ]},
             {es_notification, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_notification_idx"}
+              {index, "prod_sos_notification_idx"}
             ]},
             {es_rtoken, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_rtoken_idx"}
+              {index, "prod_sos_rtoken_idx"}
             ]},
             {es_role, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_role_idx"}
+              {index, "prod_sos_role_idx"}
             ]},
             {es_province, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_province_idx"}
+              {index, "prod_sos_province_idx"}
             ]},
             {es_support_trans, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_support_trans_idx"}
+              {index, "prod_sos_support_trans_idx"}
             ]},
             {es_support_type, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_support_type_idx"}
+              {index, "prod_sos_support_type_idx"}
             ]},
             {es_token, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_token_idx"}
+              {index, "prod_sos_token_idx"}
             ]},
             {es_user, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_user_idx"}
+              {index, "prod_sos_user_idx"}
             ]},
             {es_sos_request, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_request_idx"}
+              {index, "prod_sos_request_idx"}
             ]}
             ]},
           {docs, [
@@ -317,19 +317,19 @@ data:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata: 
-  name: sos-backend-dev 
+  name: sos-backend-prod 
   labels:   
-    app: sos-backend-dev
+    app: sos-backend-prod
 spec: 
-  serviceName: "sos-backend-dev-svc"
+  serviceName: "sos-backend-prod-svc"
   replicas: 2
   selector:
     matchLabels:     
-      app: sos-backend-dev 
+      app: sos-backend-prod 
   template:   
     metadata:     
       labels:       
-        app: sos-backend-dev
+        app: sos-backend-prod
     spec:
       securityContext:
         runAsUser: 0
@@ -347,12 +347,12 @@ spec:
       volumes:       
         - name: config-volume
           configMap:         
-            name: sos-backend-dev-config
+            name: sos-backend-prod-config
         - name: sos-backend-data-volume
           persistentVolumeClaim:
-            claimName: sos-backend-dev-pvc
+            claimName: sos-backend-prod-pvc
       containers:     
-        - name: sos-backend-dev      
+        - name: sos-backend-prod      
           image: ghcr.io/sos-hub-vn/sos-backend:dev-latest
           imagePullPolicy: Always
           ports:       
@@ -390,12 +390,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: sos-backend-dev-svc
+  name: sos-backend-prod-svc
 spec:
   selector:
-    app: sos-backend-dev
+    app: sos-backend-prod
   ports:
-    - name: sos-backend-dev-svc-8080-8080
+    - name: sos-backend-prod-svc-8080-8080
       port: 8080
       protocol: TCP
       nodePort: 30003
@@ -416,6 +416,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: sos-backend-dev-svc
+                name: sos-backend-prod-svc
                 port:
                   number: 8080
