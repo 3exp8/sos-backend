@@ -36,9 +36,9 @@ jobs:
             ghcr.io/sos-hub-vn/sos-backend:dev-latest
             ghcr.io/sos-hub-vn/sos-backend:dev-1.0.0 
 # TODO: Publish to development's k8s
-#       -
-#         name: Push to k8s
-#         uses: steebchen/kubectl@v2.0.0
-#         with:
-#           config: ${{ secrets.VINACIS_KUBE_CONFIG }}
-#           command: apply -f ./k8s/deploy-dev.yml
+       -
+         name: Push to k8s
+         uses: steebchen/kubectl@v2.0.0
+         with:
+           config: ${{ secrets.VINACIS_KUBE_CONFIG }}
+           command: apply -f ./k8s/deploy-dev.yml

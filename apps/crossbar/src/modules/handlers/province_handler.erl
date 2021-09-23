@@ -7,7 +7,8 @@
     find_district_by_code/2,
     find_Ward_by_code/2,
     get_province_district_ward_info/3,
-    get_address_detail_info/1
+    get_address_detail_info/1,
+    validate_data/2
 ]).
 
 find_district_by_code([], _Code) -> notfound;
@@ -77,3 +78,12 @@ get_province_district_ward_info(ProvinceId, DistrictCodeStr, WardCodeStr) ->
                     end
             end
     end.
+
+validate_data(ReqJson, Context) ->
+    Val = wh_json:get_value(<<"data">>, ReqJson, []),
+    case Val of 
+      [] ->
+        api_util:validate_error(Context, <<"data">>, <<"required">>, <<"data_is_required">>);
+      _ ->
+        Context
+    end. 

@@ -1,44 +1,36 @@
 ##################################################################################################
 #  Persistent Volume to store cluster data
 ##################################################################################################
-apiVersion: v1
 kind: PersistentVolume
-metadata: 
+apiVersion: v1
+metadata:
   name: sos-backend-pv
-  labels: 
+  labels:
     name: sos-backend-pv
-spec: 
-  capacity:   
-    storage: 500Mi 
-  storageClassName: manual 
+spec:
+  storageClassName: "backend-prod"
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
   accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Delete
-  local:
-    path: "~/test/so-data" ##TODO: Change here
-  nodeAffinity: ##TODO: Change all below if necessary
-    required:
-      nodeSelectorTerms:
-      - matchExpressions:
-        - key: kubernetes.io/hostname
-          operator: In
-          values:
-          - k8s-master.sos.local ##TODO: Change here
+    - ReadWriteMany
+  hostPath:
+    path: "/var/local/backend-prod"
 ---
 ##################################################################################################
 #  Persistent Volume Claim to store cluster data
 ##################################################################################################
 apiVersion: v1
 kind: PersistentVolumeClaim
-metadata: 
+metadata:
   name: sos-backend-pvc
 spec: 
   accessModes:    
-    - ReadWriteOnce 
-  storageClassName: manual 
+    - ReadWriteMany
+  storageClassName: "backend-prod"
   resources:   
     requests:     
-      storage: 500Mi
+      storage: 5Gi
 ---
 ##################################################################################################
 #  Backend Config & Start up script 
@@ -61,7 +53,7 @@ data:
     
   vm-sos-backend-0.args: |
     ## Name of the node
-    -name sos_prod@sos-backend-0.sos-backend-hl-svc
+    -name sos_prod@sos-backend-0.sos-backend-svc
     ## Cookie for distributed erlang
     -setcookie sosprod
 
@@ -95,7 +87,7 @@ data:
     ##-env ERL_FULLSWEEP_AFTER 10
   vm-sos-backend-1.args: |
     ## Name of the node
-    -name sos_prod@sos-backend-1.sos-backend-hl-svc
+    -name sos_prod@sos-backend-1.sos-backend-svc
     ## Cookie for distributed erlang
     -setcookie sosprod
 
@@ -189,7 +181,7 @@ data:
           {elasticsearch_backend,
             sumo_backend_elasticsearch,
             [
-            {host, "elastic-0.elasttic-hl-svc"}, %%TODO: Maybe change here for elasticsearch connection
+            {host, "es-service.es-cluster.svc.cluster.local"}, %%TODO: Maybe change here for elasticsearch connection
             {port, 9200},
             {index, "sumo_test"},
             {poolsize, 10}]
@@ -329,7 +321,7 @@ metadata:
   labels:   
     app: sos-backend
 spec: 
-  serviceName: "sos-backend-hl-svc" 
+  serviceName: "sos-backend-svc"
   replicas: 2
   selector:
     matchLabels:     
@@ -339,6 +331,19 @@ spec:
       labels:       
         app: sos-backend
     spec:
+      securityContext:
+        runAsUser: 0
+      initContainers:
+        - name: file-permissions
+          image: alpine
+          command: [ 'chown','-R', 'root:root', '/usr/local/sos/data' ]
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - mountPath: /usr/local/sos/data
+              name: sos-backend-data-volume
+          securityContext:
+            privileged: true
+            runAsUser: 0
       volumes:       
         - name: config-volume
           configMap:         
@@ -349,14 +354,24 @@ spec:
       containers:     
         - name: sos-backend      
           image: ghcr.io/sos-hub-vn/sos-backend:<<version>> #Image tag version
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:       
-            - containerPort: 8080      
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: 800m
+              memory: 500Mi
+            requests:
+              cpu: 400m
+              memory: 400Mi
           volumeMounts:
             - name: config-volume         
               mountPath: /usr/local/sos/config
             - name: sos-backend-data-volume         
               mountPath: /usr/local/sos/data
+          securityContext:
+            privileged: true
+            runAsUser: 0
           command:
             - "ash"
           args:  ["config/run-sos-backend.sh","$(POD_NAME)"]
@@ -365,18 +380,8 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.name
----
-##################################################################################################
-#  Sos-backend Headless Service
-##################################################################################################
-apiVersion: v1
-kind: Service
-metadata: 
-  name: sos-backend-hl-svc
-spec: 
-  clusterIP: None
-  selector:   
-    app: sos-backend
+      imagePullSecrets:
+        - name: gitcred
 
 ---
 ##################################################################################################
@@ -384,16 +389,33 @@ spec:
 ##################################################################################################
 apiVersion: v1
 kind: Service
-metadata: 
+metadata:
   name: sos-backend-svc
-  annotations:
-    service.beta.kubernetes.io/aws-load-balancer-type: nlb-ip
-spec: 
-  type: LoadBalancer
-  selector:   
+spec:
+  selector:
     app: sos-backend
-  ports:  
+  ports:
     - name: sos-backend-svc-8080-8080
       port: 8080
       protocol: TCP
-      targetPort: 8080
+      nodePort: 30003
+  type: NodePort
+---
+##################################################################################################
+#  ES Ingress
+##################################################################################################
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend-ingress
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sos-backend-svc
+                port:
+                  number: 8080
