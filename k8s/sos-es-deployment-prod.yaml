@@ -4,17 +4,17 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: es-data-pv
+  name: es-data-pv-prod
   labels:
     type: local
 spec:
-  storageClassName: manual
+  storageClassName: "es-prod"
   capacity:
-    storage: 10Gi
+    storage: 40Gi
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: "/mnt/data"
+    path: "/mnt/es-data-prod"
 ---
 ##################################################################################################
 #  ES PersistentVolumeClaim
@@ -22,14 +22,14 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: es-data-pvc
+  name: es-data-pvc-prod
 spec:
-  storageClassName: manual
+  storageClassName: "es-prod"
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 3Gi
+      storage: 30Gi
 ---
 ##################################################################################################
 #  ES Service
@@ -37,15 +37,15 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: es-service
+  name: es-service-prod
 spec:
   selector:
-    app: es-cluster
+    app: es-cluster-prod
   ports:
     - name: tcp
       port: 9200
       protocol: TCP
-      nodePort: 30002
+      nodePort: 30004
   type: NodePort
 ---
 ##################################################################################################
@@ -54,7 +54,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: es-ingress
+  name: es-ingress-prod
 spec:
   rules:
     - http:
@@ -63,7 +63,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: es-service
+                name: es-service-prod
                 port:
                   number: 9200
 ---
@@ -73,11 +73,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: elasticsearch-cluster
+  name: elasticsearch-cluster-prod
 spec:
   clusterIP: None
   selector:
-    app: es-cluster
+    app: es-cluster-prod
   ports:
     - name: transport
       port: 9300
@@ -88,17 +88,17 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: es-config
+  name: es-config-prod
 data:
   elasticsearch.yml: |
-    cluster.name: sos-elastic-cluster
+    cluster.name: sos-elastic-cluster-prod
     network.host: "0.0.0.0"
     bootstrap.memory_lock: false
-    discovery.zen.ping.unicast.hosts: elasticsearch-cluster
+    discovery.zen.ping.unicast.hosts: elasticsearch-cluster-prod
     discovery.zen.minimum_master_nodes: 1
     xpack.security.enabled: false
     xpack.monitoring.enabled: false
-  ES_JAVA_OPTS: -Xms512m -Xmx512m
+  ES_JAVA_OPTS: -Xms2g -Xmx2g
 ---
 ##################################################################################################
 #  ES StatefulSet
@@ -106,21 +106,21 @@ data:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: esnode
+  name: esnode-prod
   labels:
-    app: es-cluster
+    app: es-cluster-prod
 spec:
   serviceName: elasticsearch
-  replicas: 1
+  replicas: 3
   updateStrategy:
     type: RollingUpdate
   selector:
     matchLabels:
-      app: es-cluster
+      app: es-cluster-prod
   template:
     metadata:
       labels:
-        app: es-cluster
+        app: es-cluster-prod
     spec:
       securityContext:
         fsGroup: 1000
@@ -145,7 +145,7 @@ spec:
         - name: elasticsearch
           resources:
             requests:
-              memory: 1Gi
+              memory: 4Gi
           securityContext:
             privileged: true
             runAsUser: 1000
@@ -155,13 +155,17 @@ spec:
                 - SYS_RESOURCE
           image: docker.elastic.co/elasticsearch/elasticsearch:7.14.1
           env:
-            - name: discovery.type
-              value: single-node
             - name: ES_JAVA_OPTS
               valueFrom:
                 configMapKeyRef:
-                  name: es-config
+                  name: es-config-prod
                   key: ES_JAVA_OPTS
+          readinessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /_cluster/health?local=true
+              port: 9200
+            initialDelaySeconds: 5
           ports:
             - containerPort: 9200
               name: es-http
@@ -176,10 +180,10 @@ spec:
       volumes:
         - name: elasticsearch-config
           configMap:
-            name: es-config
+            name: es-config-prod
             items:
               - key: elasticsearch.yml
                 path: elasticsearch.yml
         - name: es-data
           persistentVolumeClaim:
-            claimName: es-data-pvc
+            claimName: es-data-pvc-prod
