@@ -55,7 +55,7 @@ jobs:
                  -e 's/<<s3_bucket>>/${{ env.S3_BUCKET }}/g' \
                  -e 's/<<s3_access_key_id>>/${{ env.S3_ACCESS_KEY_ID }}/g' \
                  -e 's/<<s3_secret_access_key>>/${{ env.S3_SECRET_ACCESS_KEY }}/g' \
-                 ./k8s/deploy-dev.yaml
+                 ./k8s/deploy-dev.yaml./k8s/deploy-dev.yaml
       -
          name: Push to k8s
          uses: steebchen/kubectl@v2.0.0
