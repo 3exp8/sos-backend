@@ -10,7 +10,7 @@ metadata:
 spec:
   storageClassName: "backend-prod"
   capacity:
-    storage: 10Gi
+    storage: 20Gi
   volumeMode: Filesystem
   accessModes:
     - ReadWriteMany
@@ -30,7 +30,7 @@ spec:
   storageClassName: "backend-prod"
   resources:   
     requests:     
-      storage: 5Gi
+      storage: 10Gi
 ---
 ##################################################################################################
 #  Backend Config & Start up script 
@@ -181,7 +181,7 @@ data:
           {elasticsearch_backend,
             sumo_backend_elasticsearch,
             [
-            {host, "es-service.es-cluster.svc.cluster.local"}, %%TODO: Maybe change here for elasticsearch connection
+            {host, "es-service-prod.es-cluster.svc.cluster.local"}, %%TODO: Maybe change here for elasticsearch connection
             {port, 9200},
             {index, "sumo_test"},
             {poolsize, 10}]

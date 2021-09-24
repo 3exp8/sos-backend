@@ -181,7 +181,7 @@ data:
           {elasticsearch_backend,
             sumo_backend_elasticsearch,
             [
-            {host, "es-service.es-cluster.svc.cluster.local"}, %%TODO: Maybe change here for elasticsearch connection
+            {host, "es-service-dev.es-cluster.svc.cluster.local"}, %%TODO: Maybe change here for elasticsearch connection
             {port, 9200},
             {index, "sumo_test"},
             {poolsize, 10}]
