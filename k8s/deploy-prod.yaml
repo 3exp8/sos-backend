@@ -353,7 +353,7 @@ spec:
             claimName: sos-backend-prod-pvc
       containers:     
         - name: sos-backend-prod      
-          image: ghcr.io/sos-hub-vn/sos-backend:dev-latest
+          image: ghcr.io/sos-hub-vn/sos-backend:<<version>>
           imagePullPolicy: Always
           ports:       
             - containerPort: 8080
