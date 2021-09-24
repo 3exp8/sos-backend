@@ -8,7 +8,7 @@ metadata:
   labels:
     type: local
 spec:
-  storageClassName: manual
+  storageClassName: "es-dev"
   capacity:
     storage: 10Gi
   accessModes:
@@ -24,7 +24,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: es-data-pvc-dev
 spec:
-  storageClassName: manual
+  storageClassName: "es-dev"
   accessModes:
     - ReadWriteOnce
   resources:
