@@ -42,10 +42,10 @@ jobs:
           REMINDER_CAMPAIGN_ID: ${{ secrets.BACKEND_OTP_REMINDER_CAMPAIGN_ID }}
           REMINDER_HOST: ${{ secrets.BACKEND_OTP_REMINDER_HOST }}
           REMINDER_SECRET_KEY: ${{ secrets.BACKEND_OTP_SECRET_KEY }}
-          AWS_REGION: ${{ secrets.BACKEND_AWS_REGION }}
-          S3_BUCKET: ${{ secrets.BACKEND_S3_BUCKET }}
-          S3_ACCESS_KEY_ID: ${{ secrets.BACKEND_S3_ACCESS_KEY_ID }}
-          S3_SECRET_ACCESS_KEY: ${{ secrets.BACKEND_S3_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.DEV_BACKEND_AWS_REGION }}
+          S3_BUCKET: ${{ secrets.DEV_BACKEND_S3_BUCKET }}
+          S3_ACCESS_KEY_ID: ${{ secrets.DEV_BACKEND_S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.DEV_BACKEND_S3_SECRET_ACCESS_KEY }}
         run: |
           sed -i -e 's/<<version>>/${{ github.event.inputs.deploy_version }}/g' \
                  -e 's/<<caller>>/${{ env.CALLER }}/g' \
