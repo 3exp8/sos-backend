@@ -85,7 +85,7 @@ authorize_verb(_Context, ?HTTP_GET) -> true;
 
 authorize_verb(Context, ?HTTP_PUT) ->
     Role = cb_context:role(Context),
-    Role == ?USER_ROLE_USER.
+    authorize_util:check_role(Role, ?USER_ROLE_ADMIN).
 
 -spec authorize(cb_context:context(), path_token()) -> boolean().
 authorize(Context, Path) ->
@@ -97,13 +97,13 @@ authorize_verb(Context, Path, ?HTTP_GET) ->
 authorize_verb(_Context, ?PATH_SEARCH, ?HTTP_POST) -> true;
 authorize_verb(_Context, ?PATH_COLOR_TYPES, ?HTTP_POST) -> true;
 
-authorize_verb(Context, _Path, ?HTTP_POST) ->
+authorize_verb(Context, _Id, ?HTTP_POST) ->
     Role = cb_context:role(Context),
-    Role == ?USER_ROLE_USER;
+    authorize_util:check_role(Role, ?USER_ROLE_ADMIN);
 
-authorize_verb(Context, _Path, ?HTTP_DELETE) ->
+authorize_verb(Context, _Id, ?HTTP_DELETE) ->
     Role = cb_context:role(Context),
-    Role == ?USER_ROLE_USER.
+    authorize_util:check_role(Role, ?USER_ROLE_ADMIN).
 
 -spec validate(cb_context:context()) -> cb_context:context().
 validate(Context) ->
@@ -123,7 +123,6 @@ handle_get({Req, Context}) ->
     Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
     Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
     PropQueryJson = wh_json:to_proplist(QueryJson),
-    lager:debug("PropQueryJson: ~p~n",[PropQueryJson]),
     SupportTypes = support_type_db:find_by_conditions([], PropQueryJson, Limit, Offset),
     PropSupportTypes = 
         lists:map(fun (Info) ->
@@ -162,17 +161,16 @@ handle_get({Req, Context}, ?PATH_SEARCH) ->
                 [TempCond|Acc]
         end,[],[UserGroupCond|QueryJsonList]),
     FinalConds = 
-    case Conds of 
-        [] -> [];
-        _ -> [{'or',Conds}]
-    end,
-    Types = support_type_db:find_by_conditions(FinalConds,[{priority,asc}],Limit,Offset),
+        case Conds of 
+            [] -> [];
+            _ -> [{'or',Conds}]
+        end,
+    Types = support_type_db:find_by_conditions(FinalConds,[{<<"sort_priority">>,asc}|QueryJsonList],Limit,Offset),
     TypesFormated = 
-    lists:map(fun(TypeInfo) -> 
-        get_sub_fields_search(TypeInfo) 
-    end,Types),
-    {Req,
-           cb_context:setters(Context,
+        lists:map(fun(TypeInfo) -> 
+            get_sub_fields_search(TypeInfo) 
+        end,Types),
+    {Req,cb_context:setters(Context,
                               [{fun cb_context:set_resp_data/2, TypesFormated},
                                {fun cb_context:set_resp_status/2, success}])};
 
@@ -202,22 +200,33 @@ handle_get({Req, Context}, Id) ->
 -spec handle_put(cb_context:context()) -> cb_context:context().
 handle_put(Context) ->
     ReqJson = cb_context:req_json(Context),
-    Uuid = zt_util:get_uuid(),    
-    UserId = cb_context:user_id(Context),
-    Info = #{
-        id => <<"support_type", Uuid/binary>>,
-        type => wh_json:get_value(<<"type">>, ReqJson,<<>>),
-        name => wh_json:get_value(<<"name">>, ReqJson,<<>>),
-        unit => wh_json:get_value(<<"unit">>, ReqJson,<<>>),
-        color_info => configuration_handler:get_color_type(wh_json:get_value(<<"color_type">>, ReqJson,<<>>)),
-        target_types => zt_util:to_map_list(wh_json:get_value(<<"target_types">>, ReqJson,[])),
-        created_time => zt_datetime:get_now(),
-        created_by_id => UserId
-    },
-    support_type_db:save(Info),
-    cb_context:setters(Context,
-                    [{fun cb_context:set_resp_data/2, Info},
-                        {fun cb_context:set_resp_status/2, success}]).
+    
+    Type = wh_json:get_value(<<"type">>, ReqJson,<<>>),
+    case support_type_handler:is_type_exist(Type) of 
+        false -> 
+            Uuid = zt_util:get_uuid(),    
+            Info = #{
+                    id => <<"support_type", Uuid/binary>>,
+                    type => Type,
+                    name => wh_json:get_value(<<"name">>, ReqJson,<<>>),
+                    unit => wh_json:get_value(<<"unit">>, ReqJson,<<>>),
+                    color_info => configuration_handler:get_color_type(wh_json:get_value(<<"color_type">>, ReqJson,<<>>)),
+                    target_types => zt_util:to_map_list(wh_json:get_value(<<"target_types">>, ReqJson,[])),
+                    created_time => zt_datetime:get_now(),
+                    created_by_id => cb_context:user_id(Context)
+            },
+            support_type_db:save(Info),
+            cb_context:setters(Context,[
+                {fun cb_context:set_resp_data/2, Info},
+                {fun cb_context:set_resp_status/2, success}
+            ]);
+        _ ->  
+                cb_context:setters(Context, [
+                    {fun cb_context:set_resp_error_msg/2, <<"type_existed">>},
+                    {fun cb_context:set_resp_status/2, <<"error">>},
+                    {fun cb_context:set_resp_error_code/2, 400}
+                ])
+    end.
 
 -spec handle_post(cb_context:context(), path_token()) -> cb_context:context().
 handle_post(Context, Id) ->
@@ -234,7 +243,7 @@ handle_post(Context, Id) ->
             color_info := ColorTypeDb,
             target_types := TargetTypesDb
         } = InfoDb -> 
-         ReqJson =  cb_context:req_json(Context),
+        ReqJson =  cb_context:req_json(Context),
         NewTargetTypes = 
             case wh_json:get_value(<<"target_types">>, ReqJson, []) of
                 [] ->  TargetTypesDb;
@@ -256,8 +265,8 @@ handle_post(Context, Id) ->
                 updated_time => zt_datetime:get_now(),
                 updated_by_id => cb_context:user_id(Context)
             }),
-            support_type_db:save(NewInfo),
-         cb_context:setters(Context
+        support_type_db:save(NewInfo),
+        cb_context:setters(Context
                             ,[{fun cb_context:set_resp_data/2, NewInfo}
                               ,{fun cb_context:set_resp_status/2, 'success'}
                              ])            
@@ -273,10 +282,10 @@ handle_delete(Context, Id) ->
                 {fun cb_context:set_resp_error_code/2, 404}]
             );
         _ -> 
-            
             support_type_db:del_by_id(Id),
             Resp = #{
-                id => Id
+                id => Id,
+                status => <<"success">>
             },
             cb_context:setters(Context,
                        [{fun cb_context:set_resp_data/2, Resp},
@@ -329,4 +338,9 @@ get_sub_fields(Group) ->
     proplists:substitute_aliases([], Res).
 
 get_sub_fields_search(TypeInfo) ->
-    maps:without([target_types,created_by_id,created_time,updated_by_id,updated_time],TypeInfo).
+    ColorInfo = maps:get(color_info, TypeInfo, #{}),
+    Priority = maps:get(<<"priority">>,ColorInfo,1000),
+    NewTypeInfo = maps:merge(TypeInfo, #{
+        priority => Priority
+    }),
+    maps:without([target_types,created_by_id,created_time,updated_by_id,updated_time],NewTypeInfo).

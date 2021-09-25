@@ -68,13 +68,23 @@ resource_exists(_Id,?PATH_MEMBER) ->true.
 
 -spec authenticate(cb_context:context()) -> boolean().
 authenticate(Context) ->
+    authenticate_verb(Context, cb_context:req_verb(Context)).
+
+authenticate_verb(Context, ?HTTP_GET) -> true;
+
+authenticate_verb(Context, _) -> 
     Token = cb_context:auth_token(Context),
     app_util:oauth2_authentic(Token, Context).
 
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
-authenticate(Context, _Path) ->
+authenticate(Context, Path) ->
+    authenticate_verb(Context, Path,cb_context:req_verb(Context)).
+
+authenticate_verb(Context, _, ?HTTP_GET) -> true;
+authenticate_verb(Context, _, _) -> 
     Token = cb_context:auth_token(Context),
     app_util:oauth2_authentic(Token, Context).
+
 
 -spec authenticate(cb_context:context(), path_token(), path_token()) -> boolean().
 authenticate(Context, _Id, _) ->
@@ -85,29 +95,30 @@ authenticate(Context, _Id, _) ->
 authorize(Context) ->
     authorize_verb(Context, cb_context:req_verb(Context)).
 
-authorize_verb(Context, ?HTTP_GET) ->
-    authorize_util:authorize(?MODULE, Context);
+authorize_verb(Context, ?HTTP_GET) -> true;
 
 authorize_verb(Context, ?HTTP_PUT) ->
-    authorize_util:authorize(?MODULE, Context).
+    Role = cb_context:role(Context),
+    authorize_util:check_role(Role, ?USER_ROLE_USER_GE).
 
 -spec authorize(cb_context:context(), path_token()) -> boolean().
 authorize(Context, Path) ->
     authorize_verb(Context, Path, cb_context:req_verb(Context)).
 
-authorize_verb(Context, Path, ?HTTP_GET) ->
-    authorize_util:authorize(?MODULE, Context, Path);
+authorize_verb(Context, Path, ?HTTP_GET) -> true;
 
 authorize_verb(Context, Path, ?HTTP_POST) ->
-    authorize_util:authorize(?MODULE, Context, Path);
+    Role = cb_context:role(Context),
+    authorize_util:check_role(Role, ?USER_ROLE_USER_GE);
 
 authorize_verb(Context, Path, ?HTTP_DELETE) ->
-    authorize_util:authorize(?MODULE, Context, Path).
+    Role = cb_context:role(Context),
+    authorize_util:check_role(Role, ?USER_ROLE_USER_GE).
 
 -spec authorize(cb_context:context(), path_token(), path_token()) -> boolean().
 authorize(Context, _Id, ?PATH_VERIFY) ->
     Role = cb_context:role(Context),
-    Role == ?USER_ROLE_USER;
+    authorize_util:check_role(Role, ?USER_ROLE_OPERATOR_GE);
 
 authorize(_Context, _Id, ?PATH_MEMBER) -> true.
 
@@ -170,7 +181,8 @@ handle_get({Req, Context}, Id) ->
 -spec handle_put(cb_context:context()) -> cb_context:context().
 handle_put(Context) ->
     ReqJson = cb_context:req_json(Context),
-    Uuid = zt_util:get_uuid(),    CustomerId = cb_context:customer_id(Context),
+    Uuid = zt_util:get_uuid(),    
+    UserId = cb_context:user_id(Context),
     case  get_target_type(
                 wh_json:get_value(<<"target_type">>, ReqJson, <<>>),
                 wh_json:get_value(<<"target_id">>, ReqJson, <<>>)
@@ -185,7 +197,7 @@ handle_put(Context) ->
                 #{
                     first_name := FirstName, 
                     last_name := LastName
-                } = user_db:find(CustomerId),
+                } = user_db:find(UserId),
                 Info = #{
                     id => <<"news", Uuid/binary>>,
                     subject => wh_json:get_value(<<"subject">>, ReqJson,<<>>),
@@ -196,10 +208,10 @@ handle_put(Context) ->
                     medias => zt_util:to_map_list(wh_json:get_value(<<"medias">>, ReqJson,[])),
                     published_by_name => <<FirstName/binary," ",LastName/binary>>,
                     published_time => zt_util:now_to_utc_binary(os:timestamp()),
-                    published_by_id => CustomerId,
+                    published_by_id => UserId,
                     created_by_name => <<FirstName/binary," ",LastName/binary>>,
                     created_time => zt_util:now_to_utc_binary(os:timestamp()),
-                    created_by_id => CustomerId
+                    created_by_id => UserId
                 },
                 news_db:save(Info),
                 cb_context:setters(Context,
@@ -245,7 +257,7 @@ lager:debug("OtherType: ~p,OtherId: ~p~n",[OtherType,OtherId]),
 
 -spec handle_post(cb_context:context(), path_token()) -> cb_context:context().
 handle_post(Context, Id) ->
-    CustomerId = cb_context:customer_id(Context),
+    CustomerId = cb_context:user_id(Context),
     case news_db:find(Id) of 
         notfound -> 
             cb_context:setters(Context,

@@ -1,0 +1,10 @@
+*.beam
+*.swp
+.rebar
+*.crashdump
+rebar.lock
+_build/*
+scripts
+ebin
+test/ebin
+.gitignore

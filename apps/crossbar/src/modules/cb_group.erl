@@ -304,7 +304,7 @@ handle_post(Context, Id) ->
                 name => wh_json:get_value(<<"name">>, ReqJson,NameDb),
                 location => wh_json:get_value(<<"location">>, ReqJson, LocationDb),
                 avatar => wh_json:get_value(<<"avatar">>, ReqJson, AvatarDb),
-                address_info => cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,AddressInfoDb)),
+                address_info => province_handler:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,AddressInfoDb)),
                 contact_info => NewContactInfo,
                 detail_info => NewDetailInfo,
                 description => wh_json:get_value(<<"description">>, ReqJson,DescriptionDb),         
@@ -394,6 +394,7 @@ handle_post(Context, Id,?PATH_MEMBER) ->
     end.
 
 handle_delete(Context, Id, ?PATH_MEMBER) ->
+    lager:debug("delete group member: id: ~p~n",[Id]),
     case group_db:find(Id) of 
         notfound -> 
             cb_context:setters(Context,
@@ -452,7 +453,8 @@ permissions() ->
 
 get_info(ReqJson,UserId) -> 
     Type = zt_util:normalize_string(wh_json:get_value(<<"type">>, ReqJson)),
-    AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
+    AddressInfo = province_handler:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,[])),
+
     CreateTime  =  zt_datetime:get_now(),
     #{
         type => Type,
@@ -461,7 +463,7 @@ get_info(ReqJson,UserId) ->
         avatar => wh_json:get_value(<<"avatar">>, ReqJson, <<>>),
         address_info => AddressInfo,
         contact_info => zt_util:to_map(wh_json:get_value(<<"contact_info">>, ReqJson,[])),
-        detail_info => zt_util:to_map(wh_json:get_value(<<"detail_info">>, ReqJson,[])),
+        detail_info => filter_detail_info(zt_util:to_map(wh_json:get_value(<<"detail_info">>, ReqJson,[]))),
         admin_id => <<>>,
         members => [],
         verify_status => <<"pending">>, 
@@ -471,6 +473,19 @@ get_info(ReqJson,UserId) ->
         created_by => UserId,
         updated_by => UserId
     }.
+
+filter_detail_info(DetailInfo) -> 
+    SupportTypesList = maps:get(support_types, DetailInfo,[]),
+    SupportTypesFiltered = 
+        lists:map(fun(SupportTypeProps) -> 
+            lager:debug("SupportTypeProps: ~p~n",[SupportTypeProps]),
+            SupportTypeMap = maps:from_list(SupportTypeProps),
+            maps:with([<<"type">>,<<"name">>],SupportTypeMap)
+        end,SupportTypesList),
+    maps:merge(DetailInfo, #{
+        support_types => SupportTypesFiltered
+    }).
+
 
 validate_request(Context, ?HTTP_GET) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
@@ -500,6 +515,7 @@ validate_request(_Id, Context, ?HTTP_POST = _Verb) ->
 
 validate_request(_Id, Context, ?HTTP_DELETE) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
+
 validate_request(_Id, Context, _Verb) ->
     Context.
 
@@ -516,8 +532,31 @@ validate_request(_Id, ?PATH_VERIFY, Context, ?HTTP_POST) ->
                 Context1,
                 ValidateFuns);
 
-validate_request(_Id, ?PATH_MEMBER, Context, _) ->
-    cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
+validate_request(_Id, ?PATH_MEMBER, Context, ?HTTP_POST) ->
+
+    ReqJson = cb_context:req_json(Context),
+    Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
+    ValidateFuns = [
+                    fun group_handler:validate_add_members/2],
+                   
+    lists:foldl(fun (F, C) ->
+                        F(ReqJson, C)
+                end,
+                Context1,
+                ValidateFuns);
+
+validate_request(_Id, ?PATH_MEMBER, Context, ?HTTP_DELETE) ->
+
+                ReqJson = cb_context:req_json(Context),
+                Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
+                ValidateFuns = [
+                                fun group_handler:validate_remove_members/2],
+                               
+                lists:foldl(fun (F, C) ->
+                                    F(ReqJson, C)
+                            end,
+                            Context1,
+                            ValidateFuns);
 
 validate_request(_Id, ?PATH_SUGGEST, Context, _) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);

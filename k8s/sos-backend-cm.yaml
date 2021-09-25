@@ -7,6 +7,7 @@ data:
     #!/bin/ash
     cp -f config/vm-$1.args releases/0.1.0/vm.args
     cp -f config/sys.config releases/0.1.0/
+    mkdir -p data/$1/mnesia
     ./bin/sos start
     tail -F log/console.log
     
@@ -29,6 +30,7 @@ data:
 
     -mnesia dump_log_write_threshold 50000
     -mnesia dc_dump_limit 40
+    -mnesia dir '"data/sos-backend-0/mnesia"'
 
     ## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
     ## (Disabled by default..use with caution!)
@@ -62,6 +64,7 @@ data:
 
     -mnesia dump_log_write_threshold 50000
     -mnesia dc_dump_limit 40
+    -mnesia dir '"data/sos-backend-1/mnesia"'
 
     ## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
     ## (Disabled by default..use with caution!)
@@ -148,65 +151,65 @@ data:
           {stores, [
             {es_account, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_account_idx"}
+              {index, "prod_sos_account_idx"}
             ]},
             {es_configuration, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_configuration_idx"}
+              {index, "prod_sos_configuration_idx"}
             ]},
             {es_customer, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_customer_idx"}
+              {index, "prod_sos_customer_idx"}
             ]},
             {es_device, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_device_idx"}
+              {index, "prod_sos_device_idx"}
             ]},
             
             {es_group, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_group_idx"}
+              {index, "prod_sos_group_idx"}
             ]},
             {es_news, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_news_idx"}
+              {index, "prod_sos_news_idx"}
             ]},
             {es_notification, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_notification_idx"}
+              {index, "prod_sos_notification_idx"}
             ]},
             {es_rtoken, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_rtoken_idx"}
+              {index, "prod_sos_rtoken_idx"}
             ]},
             {es_role, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_role_idx"}
+              {index, "prod_sos_role_idx"}
             ]},
             {es_province, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_province_idx"}
+              {index, "prod_sos_province_idx"}
             ]},
           
             {es_support_trans, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_support_trans_idx"}
+              {index, "prod_sos_support_trans_idx"}
             ]},
             {es_support_type, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_support_type_idx"}
+              {index, "prod_sos_support_type_idx"}
             ]},
             {es_token, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_token_idx"}
+              {index, "prod_sos_token_idx"}
             ]},
             {es_user, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_user_idx"}
+              {index, "prod_sos_user_idx"}
             ]},
             {es_sos_request, sumo_store_elasticsearch, [
               {storage_backend, elasticsearch_backend},
-              {index, "dev_sos_request_idx"}
+              {index, "prod_sos_request_idx"}
             ]}
             ]},
           {docs, [

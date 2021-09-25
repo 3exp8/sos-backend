@@ -5,12 +5,16 @@
 
 -export([
     find_groups_by_user/1,
+    is_group_member/2,
     validate_type/2,
+    validate_add_members/2,
+    validate_remove_members/2,
     validate_name/2,
     validate_contact_info/2,
     validate_detail_info/2,
     validate_verify_status/2
 ]).
+
 
 find_groups_by_user(<<>>) -> [];
 find_groups_by_user(undefined) -> [];
@@ -28,11 +32,72 @@ find_groups_by_user(UserId) ->
                 })
     end,Groups).
 
+is_group_member(GroupId, UserId) ->
+    Conds = [
+                {id, GroupId},
+                {'or',[
+                    {<<"members.id">>,UserId},
+                    {<<"members#id">>,UserId}
+                    ]}
+            ],
+    case group_db:find_by_conditions(Conds,[],1,0) of
+        [] -> false;
+        _ -> true 
+    end.
+
  
 validate_type(ReqJson, Context) ->
     Type = wh_json:get_value(<<"type">>, ReqJson, <<>>),
     api_util:check_val(Context, <<"type">>, Type).
 
+validate_add_members(ReqJson, Context) ->
+    Key = <<"members">>,
+    case wh_json:get_value(Key, ReqJson, []) of
+        [] -> 
+            api_util:validate_error(Context, Key, <<"required">>, <<Key/binary," is required">>);
+        Members when is_list(Members) ->
+            AllMemberOk = 
+                lists:all(fun(Val) ->
+                    case {
+                        proplists:get_value(<<"id">>,Val,<<>>),
+                        proplists:get_value(<<"role">>,Val,<<>>)
+                    }
+                        of 
+                            {<<>>, _} -> false;
+                            {_, <<>>} -> false;
+                            _ -> true 
+                    end
+                end,Members),
+            case AllMemberOk of 
+                true -> Context;
+                false -> 
+                    api_util:validate_error(Context, Key, <<"invalid">>, <<"One or more ",Key/binary," is not valid">>)
+            end;
+        _ -> 
+            api_util:validate_error(Context, Key, <<"invalid">>, <<Key/binary," must be list">>)
+    end.
+
+validate_remove_members(ReqJson, Context) ->
+    Key = <<"members">>,
+    case wh_json:get_value(Key, ReqJson, []) of
+        [] -> 
+            api_util:validate_error(Context, Key, <<"required">>, <<Key/binary," is required">>);
+        Members when is_list(Members) ->
+            AllMemberOk = 
+                lists:all(fun(Val) ->
+                    case proplists:get_value(<<"id">>,Val,<<>>) of 
+                        <<>> -> false;
+                        _ -> true 
+                    end
+                end,Members),
+            case AllMemberOk of 
+                true -> Context;
+                false -> 
+                    api_util:validate_error(Context, Key, <<"invalid">>, <<"One or more ",Key/binary," is not valid">>)
+            end;
+        _ -> 
+            api_util:validate_error(Context, Key, <<"invalid">>, <<Key/binary," must be list">>)
+    end.
 validate_name(ReqJson, Context) ->
     Subject = wh_json:get_value(<<"name">>, ReqJson, <<>>),
     api_util:check_val(Context, <<"name">>, Subject).

@@ -146,10 +146,7 @@ handle_get({Req, Context}, Id) ->
 -spec handle_put(cb_context:context()) -> cb_context:context().
 handle_put(Context) ->
     ReqJson = cb_context:req_json(Context),
-    Uuid = zt_util:get_uuid(),    
-    UserId = cb_context:customer_id(Context),
     lager:debug("ReqJson: ~p~n",[ReqJson]),
-
     SosRequestId = wh_json:get_value(<<"sos_request_id">>, ReqJson, <<>>),
     lager:debug("SosRequestId: ~p~n",[SosRequestId]),
     case sos_request_db:find(SosRequestId) of 
@@ -163,9 +160,10 @@ handle_put(Context) ->
             requester_info := RequeterInfo
         } = SosRequestInfo -> 
 
-            Type = wh_json:get_value(<<"type">>, ReqJson, <<"user">>),
+            Type = wh_json:get_value(<<"type">>, ReqJson, ?REQUESTER_TYPE_USER),
             Id = wh_json:get_value(<<"id">>, ReqJson, <<>>),
-            
+            Uuid = zt_util:get_uuid(),    
+            UserId = cb_context:user_id(Context),
             Info = #{
                 id => <<"trans", Uuid/binary>>,
                 sos_request_id => SosRequestId,
@@ -174,7 +172,7 @@ handle_put(Context) ->
                 medias => zt_util:to_map_list(wh_json:get_value(<<"medias">>, ReqJson,[])),
                 support_list =>  zt_util:to_map_list(wh_json:get_value(<<"support_list">>, ReqJson,[])),
                 support_time =>  wh_json:get_value(<<"support_time">>, ReqJson, zt_datetime:get_now()),
-                supporter_info =>  sos_request_handler:get_supporter_info(Type,Id),
+                supporter_info =>  sos_request_handler:get_supporter_info(Type,Id,UserId),
                 created_time => zt_datetime:get_now(),
                 created_by => UserId
             },
@@ -230,7 +228,7 @@ handle_post(Context, Id) ->
                 description => wh_json:get_value(<<"description">>, ReqJson, DescriptionDb),
                 support_time =>  wh_json:get_value(<<"support_time">>, ReqJson, SupportDateDb),
                 updated_time => zt_datetime:get_now(),
-                updated_by_id => cb_context:customer_id(Context)
+                updated_by_id => cb_context:user_id(Context)
             }),
             lager:debug("NewInfo: ~p~n",[NewInfo]),
             support_trans_db:save(NewInfo),

@@ -105,7 +105,6 @@ handle_put(Context) ->
         ReqDeviceId -> ReqDeviceId
     end,
 
-  CustomerId = cb_context:customer_id(Context),
   Role = cb_context:role(Context),
   UserInfo = 
     case Role of 

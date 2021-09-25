@@ -18,7 +18,10 @@ spec:
       volumes:       
         - name: config-volume
           configMap:         
-            name: sos-backend-config     
+            name: sos-backend-config
+        - name: sos-backend-data-volume
+          persistentVolumeClaim:
+            claimName: sos-backend-pvc
       containers:     
         - name: sos-backend      
           image: nghiaembt/sos-backend:0.0.3
@@ -28,6 +31,8 @@ spec:
           volumeMounts:
             - name: config-volume         
               mountPath: /usr/local/sos/config
+            - name: sos-backend-data-volume         
+              mountPath: /usr/local/sos/data
           command:
             - "ash"
           args:  ["config/run-sos-backend.sh","$(POD_NAME)"]

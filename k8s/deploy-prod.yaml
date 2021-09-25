@@ -1,0 +1,421 @@
+##################################################################################################
+#  Persistent Volume to store cluster data
+##################################################################################################
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: sos-backend-prod-pv
+  labels:
+    name: sos-backend-prod-pv
+spec:
+  storageClassName: "backend-prod"
+  capacity:
+    storage: 20Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  hostPath:
+    path: "/var/local/backend-prod"
+---
+##################################################################################################
+#  Persistent Volume Claim to store cluster data
+##################################################################################################
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sos-backend-prod-pvc
+spec: 
+  accessModes:    
+    - ReadWriteMany
+  storageClassName: "backend-prod"
+  resources:   
+    requests:     
+      storage: 10Gi
+---
+##################################################################################################
+#  Backend Config & Start up script 
+#  Apply to statefulset
+#  Maximum 2 Repicas
+##################################################################################################
+
+apiVersion: v1
+kind: ConfigMap
+metadata: 
+  name: sos-backend-prod-config
+data:
+  run-sos-backend.sh: |
+    #!/bin/ash
+    cp -f config/vm-$1.args releases/0.1.0/vm.args
+    cp -f config/sys.config releases/0.1.0/
+    mkdir -p data/$1/mnesia
+    ./bin/sos start
+    tail -F log/console.log
+    
+  vm-sos-backend-prod-0.args: |
+    ## Name of the node
+    -name sos@sos-backend-prod-0.sos-backend-prod-svc
+    ## Cookie for distributed erlang
+    -setcookie sosprod
+
+    -smp enable
+
+    +K true
+    +A 5
+    +P 1000000
+
+    -kernel inet_dist_listen_min 9000 inet_dist_listen_max 9010 
+    -env ERL_MAX_PORTS 250000
+    -env ERL_FULLSWEEP_AFTER 2
+    -env ERL_MAX_ETS_TABLES 100000 
+
+    -mnesia dump_log_write_threshold 50000
+    -mnesia dc_dump_limit 40
+    -mnesia dir '"data/sos-backend-prod-0/mnesia"'
+
+    ## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
+    ## (Disabled by default..use with caution!)
+    ##-heart
+
+    ## Enable kernel poll and a few async threads
+    ##+K true
+    ##+A 5
+
+    ## Increase number of concurrent ports/sockets
+    ##-env ERL_MAX_PORTS 4096
+
+    ## Tweak GC to run more often
+    ##-env ERL_FULLSWEEP_AFTER 10
+  vm-sos-backend-prod-1.args: |
+    ## Name of the node
+    -name sos@sos-backend-prod-1.sos-backend-prod-svc
+    ## Cookie for distributed erlang
+    -setcookie sosprod
+
+    -smp enable
+
+    +K true
+    +A 5
+    +P 1000000
+
+    -kernel inet_dist_listen_min 9000 inet_dist_listen_max 9010 
+    -env ERL_MAX_PORTS 250000
+    -env ERL_FULLSWEEP_AFTER 2
+    -env ERL_MAX_ETS_TABLES 100000 
+
+    -mnesia dump_log_write_threshold 50000
+    -mnesia dc_dump_limit 40
+    -mnesia dir '"data/sos-backend-prod-1/mnesia"'
+
+    ## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
+    ## (Disabled by default..use with caution!)
+    ##-heart
+
+    ## Enable kernel poll and a few async threads
+    ##+K true
+    ##+A 5
+
+    ## Increase number of concurrent ports/sockets
+    ##-env ERL_MAX_PORTS 4096
+
+    ## Tweak GC to run more often
+    ##-env ERL_FULLSWEEP_AFTER 10
+  sys.config: |
+    [
+        %% SASL config
+      {sasl, [
+        {sasl_error_logger, {file, "log/sasl-error.log"}},
+          {errlog_type, error},
+          {error_logger_mf_dir, "log/sasl"},      % Log directory
+        {error_logger_mf_maxbytes, 10485760},   % 10 MB max file size
+        {error_logger_mf_maxfiles, 5}           % 5 files max
+      ]},
+      {lager, [
+        {log_root, "log/"},
+        {handlers, [
+          {lager_console_backend, debug},
+          {lager_file_backend, [{file, "error.log"}, {level, error}]},
+          {lager_file_backend, [{file, "console.log"}, {level, debug}]}
+        ]},
+        {extra_sinks,[
+          {app_lager_event,[
+            {handlers,[
+              {lager_file_backend, [{file, "sos_app.log"},
+                {level, debug},
+                {date, "$D23"},
+                {count, 10},
+                {size, 104857600}, %% 100Mb of log
+                {formatter, lager_default_formatter},
+                  {formatter_config,
+                    [date, " ", time," [",severity,"] ",
+                    {pid, [ pid ], ""},
+                    "[",
+                    {module, [ module,
+                      {function, [":", function], ""},
+                      {line, [":", line], ""}], ""},
+                    "] ", message, "\n"]}]
+              },
+              {lager_file_backend, [{file, "sos_app_error.log"},
+                {level, error},
+                {date, "$D23"},
+                {count, 10},
+                {size, 104857600}, %% 100Mb of log
+                {formatter, lager_default_formatter},
+                  {formatter_config,
+                    [date, " ", time," [",severity,"] ",
+                    {pid, [ pid ], ""},
+                    "[",
+                    {module, [ module,
+                      {function, [":", function], ""},
+                      {line, [":", line], ""}], ""},
+                    "] ", message, "\n"]}]
+              }
+              ]},
+            {async_threshold, 500},
+            {async_threshold_window, 50}]
+          }]
+        }
+        ]},
+      {sumo_db, [
+        {query_timeout, 60000}, %% 60s
+        {storage_backends, [
+          {elasticsearch_backend,
+            sumo_backend_elasticsearch,
+            [
+            {host, "es-service-prod.es-cluster.svc.cluster.local"}, %%TODO: Maybe change here for elasticsearch connection
+            {port, 9200},
+            {index, "sumo_test"},
+            {poolsize, 10}]
+          }
+
+        ]},
+          {stores, [
+            {es_configuration, sumo_store_elasticsearch, [
+              {storage_backend, elasticsearch_backend},
+              {index, "prod_sos_configuration_idx"}
+            ]},
+            {es_device, sumo_store_elasticsearch, [
+              {storage_backend, elasticsearch_backend},
+              {index, "prod_sos_device_idx"}
+            ]},
+            {es_group, sumo_store_elasticsearch, [
+              {storage_backend, elasticsearch_backend},
+              {index, "prod_sos_group_idx"}
+            ]},
+            {es_news, sumo_store_elasticsearch, [
+              {storage_backend, elasticsearch_backend},
+              {index, "prod_sos_news_idx"}
+            ]},
+            {es_notification, sumo_store_elasticsearch, [
+              {storage_backend, elasticsearch_backend},
+              {index, "prod_sos_notification_idx"}
+            ]},
+            {es_rtoken, sumo_store_elasticsearch, [
+              {storage_backend, elasticsearch_backend},
+              {index, "prod_sos_rtoken_idx"}
+            ]},
+            {es_role, sumo_store_elasticsearch, [
+              {storage_backend, elasticsearch_backend},
+              {index, "prod_sos_role_idx"}
+            ]},
+            {es_province, sumo_store_elasticsearch, [
+              {storage_backend, elasticsearch_backend},
+              {index, "prod_sos_province_idx"}
+            ]},
+            {es_support_trans, sumo_store_elasticsearch, [
+              {storage_backend, elasticsearch_backend},
+              {index, "prod_sos_support_trans_idx"}
+            ]},
+            {es_support_type, sumo_store_elasticsearch, [
+              {storage_backend, elasticsearch_backend},
+              {index, "prod_sos_support_type_idx"}
+            ]},
+            {es_token, sumo_store_elasticsearch, [
+              {storage_backend, elasticsearch_backend},
+              {index, "prod_sos_token_idx"}
+            ]},
+            {es_user, sumo_store_elasticsearch, [
+              {storage_backend, elasticsearch_backend},
+              {index, "prod_sos_user_idx"}
+            ]},
+            {es_sos_request, sumo_store_elasticsearch, [
+              {storage_backend, elasticsearch_backend},
+              {index, "prod_sos_request_idx"}
+            ]}
+            ]},
+          {docs, [
+            {access_token_doc, es_token},
+            {configuration_doc, es_configuration},
+            {device_doc,  es_device},
+            {group_doc,  es_group},
+            {news_doc,  es_news},
+            {notification_doc,  es_notification},
+            {refresh_token_doc,  es_rtoken},
+            {role_doc, es_role},
+            {province_doc, es_province},
+            {support_type_doc, es_support_type},
+            {support_trans_doc, es_support_trans},
+            {user_doc, es_user},
+            {sos_request_doc, es_sos_request}
+          ]},
+          {events,
+            [{sumo_test_people_elasticsearch,
+              sumo_test_people_elasticsearch_events_manager}]
+          }
+        ]},
+      {erlcloud, 
+        [
+          {aws_region, "<<aws_region>>"}, % secrets.BACKEND_AWS_REGION
+          {s3_bucket, "<<s3_bucket>>"}, % secrets.BACKEND_S3_BUCKET
+          {s3_presigned_expired, 300},
+          {s3_access_key_id, "<<s3_access_key_id>>"}, % secrets.BACKEND_S3_ACCESS_KEY_ID
+          {s3_secret_access_key, "<<s3_secret_access_key>>"} % secrets.BACKEND_S3_SECRET_ACCESS_KEY
+      ]},
+      {oauth2, [
+        {expiry_time, 31536000}, % Expire days
+        {refresh_token, [
+          {expiry_time, 157680000} %% expire of refresh token is 5 years
+        ]},
+          {backend, oauth2_app_backend}
+      ]},
+
+      {zt_push, [
+        {fcm_api_url, "https://fcm.googleapis.com/fcm/send"},
+        {fcm_auth_key, ""},
+        {cb_fun, fun sns_util:push_callback/3 }
+        ]},
+      {worker_pool, [
+        {default_strategy, next_worker}
+      ]},
+      {
+        zt_r2r,[
+        {reminder_protocol, https},
+        {reminder_host, "<<reminder_host>>"}, % secrets.BACKEND_OTP_REMINDER_HOST
+        {reminder_port, 443},
+        {reminder_campaign_id, "<<reminder_campaign_id>>"}, % secrets.BACKEND_OTP_REMINDER_CAMPAIGN_ID
+        {reminder_secret_key, "<<reminder_secret_key>>"}, % secrets.BACKEND_OTP_SECRET_KEY
+        {caller, "<<caller>>"}, % secrets.BACKEND_OTP_CALLER
+        {sms_callback_url, "https://dev.api.sos.io/api/v1/sns_callback/sms" },
+        {sms_callback_fun, fun sns_util:sms_callback/1 }
+        ]},
+      {
+        crossbar,[
+        {port, 8080},
+        {send_otp_max_resend, 5}, % Max 5 request
+        {send_otp_min_interval, 60}, % 60 second
+        {otp_expired_duration, 120}, % 120 second
+        {portal_url,"https://dev.portal.sos.io"},
+        {email_from_address,"info@sos.io"},
+        {email_from_name,"SOS Support Center"}
+        ]
+      }
+      ].
+---
+##################################################################################################
+#  Sos Backend Satefulset
+#  Maximum 2 Replicas
+##################################################################################################
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: 
+  name: sos-backend-prod 
+  labels:   
+    app: sos-backend-prod
+spec: 
+  serviceName: "sos-backend-prod-svc"
+  replicas: 2
+  selector:
+    matchLabels:     
+      app: sos-backend-prod 
+  template:   
+    metadata:     
+      labels:       
+        app: sos-backend-prod
+    spec:
+      securityContext:
+        runAsUser: 0
+      initContainers:
+        - name: file-permissions
+          image: alpine
+          command: [ 'chown','-R', 'root:root', '/usr/local/sos/data' ]
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - mountPath: /usr/local/sos/data
+              name: sos-backend-data-volume
+          securityContext:
+            privileged: true
+            runAsUser: 0
+      volumes:       
+        - name: config-volume
+          configMap:         
+            name: sos-backend-prod-config
+        - name: sos-backend-data-volume
+          persistentVolumeClaim:
+            claimName: sos-backend-prod-pvc
+      containers:     
+        - name: sos-backend-prod      
+          image: ghcr.io/sos-hub-vn/sos-backend:<<version>>
+          imagePullPolicy: Always
+          ports:       
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: 800m
+              memory: 500Mi
+            requests:
+              cpu: 400m
+              memory: 400Mi
+          volumeMounts:
+            - name: config-volume         
+              mountPath: /usr/local/sos/config
+            - name: sos-backend-data-volume         
+              mountPath: /usr/local/sos/data
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          command:
+            - "ash"
+          args:  ["config/run-sos-backend.sh","$(POD_NAME)"]
+          env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+      imagePullSecrets:
+        - name: gitcred
+
+---
+##################################################################################################
+#  Sos-backend Load Balancer Service
+##################################################################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: sos-backend-prod-svc
+spec:
+  selector:
+    app: sos-backend-prod
+  ports:
+    - name: sos-backend-prod-svc-8080-8080
+      port: 8080
+      protocol: TCP
+      nodePort: 31234
+  type: NodePort
+---
+##################################################################################################
+#  ES Ingress
+##################################################################################################
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend-ingress-prod
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sos-backend-prod-svc
+                port:
+                  number: 8080

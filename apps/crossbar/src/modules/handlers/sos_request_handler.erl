@@ -1,20 +1,24 @@
 -module(sos_request_handler).
-
 -include("crossbar.hrl").
 -include("app.hrl").
 
 -export([
-    calculate_color_type/1,
-    get_supporter_info/2,
+    calculate_color_type/2,
+    get_supporter_info/3,
     get_suggester_info/1,
+    is_joined_request/3,
+    filter_support_types/1,
+    maybe_hide_phone_number/2,
     maybe_update_support_status/4,
     maybe_add_bookmarks/2,
     maybe_remove_bookmarks/3,
     get_target_type/2,
+    get_my_target_type/3,
     validate_bookmarker_type/2,
     validate_bookmarker_id/2,
     validate_suggest_target_type/2,
     validate_suggest_target_id/2,
+    validate_request_type/2,
     validate_requester_type/2,
     validate_share_phone_number_update/2,
     validate_share_phone_number/2,
@@ -23,6 +27,7 @@
     validate_search_long/2,
     change_request_status/2,
     change_task_status/2,
+    maybe_verify/2,
     maybe_update_request_status/2,
     maybe_update_request_info/2,
     validate_update_status/2,
@@ -34,28 +39,27 @@
     maybe_filter_bookmark/3,
     maybe_filter_bookmark_by_group/2,
     is_owner/2,
-    is_owner_or_admin/3
+    is_owner_or_admin/3,
+    validate_update_verify_status/2
 ]).
 
-
-
-is_owner_or_admin(?USER_ROLE_ADMIN, UserId, Info) -> true;
-is_owner_or_admin(?USER_ROLE_OPERATOR, UserId, Info) -> true;
+is_owner_or_admin(?USER_ROLE_ADMIN, _UserId, _Info) -> true;
+is_owner_or_admin(?USER_ROLE_OPERATOR, _UserId, _Info) -> true;
 is_owner_or_admin(_,UserId, Info) -> 
     is_owner(UserId, Info).
 
 is_owner(<<>>, _) -> false;
 is_owner(UserId, #{
+    requester_type := ?OBJECT_TYPE_USER,
     requester_info := #{
-        <<"id">> := UserId,
-        <<"type">> := ?OBJECT_TYPE_USER
+        <<"id">> := UserId
     }
 }) -> true;
 
 is_owner(UserId, #{
+    requester_type := ?OBJECT_TYPE_GROUP,
     requester_info := #{
-        <<"id">> := RequesterGroupId,
-        <<"type">> := ?OBJECT_TYPE_GROUP
+        <<"id">> := RequesterGroupId
     }
 }) -> 
     %TODO: implement group id
@@ -90,17 +94,7 @@ maybe_filter_bookmark(ObjecType, ObjectId, #{bookmarks := Bookmarks} = SosReques
 maybe_filter_bookmark_by_group(Groups, #{bookmarks := Bookmarks} = SosRequestInfo) ->
     GroupBookmarks = 
     lists:filtermap(fun(#{id := GroupId}) ->
-        case find_bookmark(Bookmarks, ?OBJECT_TYPE_GROUP, GroupId) of 
-            {true, BookmarkInfo} ->
-                    NewSosRequestInfo = 
-                        maps:merge(SosRequestInfo, #{
-                            is_group_bookmarked => true,
-                            bookmark_info => BookmarkInfo
-                        }),
-                    {true, NewSosRequestInfo};
-            false -> fasle
-        end
-
+        find_bookmark(Bookmarks, ?OBJECT_TYPE_GROUP, GroupId)
     end,Groups),
     case length(GroupBookmarks) of 
         0 -> not_found_group_bookmark(SosRequestInfo);
@@ -111,15 +105,54 @@ maybe_filter_bookmark_by_group(Groups, #{bookmarks := Bookmarks} = SosRequestInf
             })
     end.
     
-find_bookmark([], Type, Id) -> false;
+
+
+maybe_hide_phone_number(?SHARE_PHONE_NUMBER_TYPE_PUBLIC,RequestInfo) -> RequestInfo;
+
+maybe_hide_phone_number(_,RequestInfo) -> 
+
+    #{
+        contact_info := ContactInfoDb,
+        requester_info := RequesterInfoDb
+    } = RequestInfo,
+    ContactPhone = maps:get(<<"phone_number">>,ContactInfoDb,<<>>),
+    NewContactPhone = zt_util:to_bin(string:right(zt_util:to_str(ContactPhone),3)),
+    NewContactInfo = 
+        maps:merge(ContactInfoDb, #{
+                 <<"phone_number">> => <<"xxxxxxx",NewContactPhone/binary>>
+             }),
+    RequesterPhone = maps:get(<<"phone_number">>,ContactInfoDb,<<>>),
+    NewRequesterPhone = zt_util:to_bin(string:right(zt_util:to_str(RequesterPhone),3)),
+    NewRequesterInfo = 
+                 maps:merge(RequesterInfoDb, #{
+                          <<"phone_number">> => <<"xxxxxxx",NewRequesterPhone/binary>>
+                      }),
+             
+    maps:merge(RequestInfo, #{
+        contact_info => NewContactInfo,
+        requester_info => NewRequesterInfo
+    }).
+
+
+find_bookmark([], _Type, _Id) -> false;
 
 find_bookmark([Info|OtherBookmars], Type, Id) -> 
       case Info of 
       #{
-        <<"id">> := Id 
+        <<"bookmarker_id">> := Id 
       } ->  {true, Info};
       _ -> find_bookmark(OtherBookmars, Type, Id)
-    end.
+    end;
+find_bookmark(_, _, _) -> false.
+
+change_request_verify_status(Status,Status) -> Status;
+change_request_verify_status(_,?SOS_REQUEST_VERIFY_STATUS_REJECTED) -> ?SOS_REQUEST_VERIFY_STATUS_REJECTED;
+change_request_verify_status(_,?SOS_REQUEST_VERIFY_STATUS_VERIFIED) -> ?SOS_REQUEST_VERIFY_STATUS_VERIFIED;
+change_request_verify_status(_,?SOS_REQUEST_VERIFY_STATUS_NOT_VERIFIED) -> ?SOS_REQUEST_VERIFY_STATUS_NOT_VERIFIED;
+
+change_request_verify_status(CurrentStatus,NewStatus) ->
+    lager:debug("change_request_verify_status ignore updating status ~p to ~p ~n",[CurrentStatus,NewStatus]),
+    CurrentStatus.
 
 change_request_status(?SOS_REQUEST_STATUS_OPEN,?SOS_REQUEST_STATUS_VERIFIED) -> ?SOS_REQUEST_STATUS_VERIFIED;
 change_request_status(?SOS_REQUEST_STATUS_REOPEN,?SOS_REQUEST_STATUS_VERIFIED) -> ?SOS_REQUEST_STATUS_VERIFIED;
@@ -131,7 +164,9 @@ change_request_status(?SOS_REQUEST_STATUS_REOPEN,?SOS_REQUEST_STATUS_ACCEPTED) -
 
 change_request_status(?SOS_REQUEST_STATUS_ACCEPTED,?SOS_REQUEST_STATUS_EXECUTING) -> ?SOS_REQUEST_STATUS_EXECUTING;
 
+change_request_status(_,?SOS_REQUEST_STATUS_RESOLVED) -> ?SOS_REQUEST_STATUS_RESOLVED;
 change_request_status(?SOS_REQUEST_STATUS_EXECUTING,?SOS_REQUEST_STATUS_RESOLVED) -> ?SOS_REQUEST_STATUS_RESOLVED;
+
 
 change_request_status(?SOS_REQUEST_STATUS_OPEN,?SOS_REQUEST_STATUS_REJECTED) -> ?SOS_REQUEST_STATUS_REJECTED;
 change_request_status(?SOS_REQUEST_STATUS_REOPEN,?SOS_REQUEST_STATUS_REJECTED) -> ?SOS_REQUEST_STATUS_REJECTED;
@@ -161,6 +196,16 @@ change_task_status(?SOS_TASK_STATUS_EXECUTING,?SOS_TASK_STATUS_CANCELED) -> ?SOS
 change_task_status(CurrentStatus,NewStatus) ->
     lager:debug("change_task_status ignore updateing status ~p to ~p ~n",[CurrentStatus,NewStatus]),
     CurrentStatus.
+
+auto_update_request_status(?SOS_TASK_STATUS_EXECUTING,_) -> ?SOS_REQUEST_STATUS_EXECUTING;
+
+auto_update_request_status(_, CurrentRequestStatus) -> CurrentRequestStatus.
+
+
+filter_support_types(SupportTypesList) -> 
+    lists:map(fun(SupportTypeMap) -> 
+            maps:with([type,name],SupportTypeMap)
+    end,SupportTypesList).
 
 maybe_add_bookmarks(undefined, BookmarkInfo) -> maybe_add_bookmarks([], BookmarkInfo);
 maybe_add_bookmarks(CurrentBookmarks, #{
@@ -234,10 +279,25 @@ validate_update_status(ReqJson, Context) ->
         ErrorContext -> ErrorContext
     end.
 
+validate_update_verify_status(ReqJson, Context) ->
+    Key = <<"status">>,
+    Val = wh_json:get_value(Key, ReqJson, <<>>),
+    case api_util:check_val(Context, Key, Val) of 
+        Context -> 
+            case lists:member(Val, ?SOS_REQUEST_VERIFY_STATUSES) of
+                true -> Context;
+                _ ->
+                    Vals = zt_util:arr_to_str(?SOS_REQUEST_VERIFY_STATUSES),
+                    api_util:validate_error(Context, Key, <<"invalid">>, <<"Invalid ",Key/binary,". Value must be ",Vals/binary>>)
+            end;
+        ErrorContext -> ErrorContext
+    end.
 %-spec calculate_color_type([]) -> map().
-calculate_color_type([]) -> #{};
+calculate_color_type(?SOS_REQUEST_TYPE_OFFER, _) -> configuration_handler:get_color_type(<<"green">>);
 
-calculate_color_type(SupportTypes) -> 
+calculate_color_type(_, []) -> #{};
+
+calculate_color_type(_, SupportTypes) -> 
 lager:debug("calculate_color_type SupportTypes: ~p~n",[SupportTypes]),
 Types = 
     lists:map(fun(#{type := Type}) -> 
@@ -259,7 +319,7 @@ maybe_update_request_info(Context, #{
     color_info := ColorInfoDb,
     share_phone_number := SharePhoneNumberDb,
     medias := MediasDb,
-    request_object_status := ObjectStatusDb,
+    requester_object_status := ObjectStatusDb,
     description := DescriptionDb,
     location := LocationDb
 } = RequestInfo) -> 
@@ -273,7 +333,7 @@ maybe_update_request_info(Context, #{
                     zt_util:to_map_list(SupportTypeReq)
         end,
     Location = wh_json:get_value(<<"location">>, ReqJson, LocationDb),
-    AddressInfo = cb_province:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson, AddressInfoDb)),
+    AddressInfo = province_handler:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson, AddressInfoDb)),
     
     NewContactInfo = 
         case wh_json:get_value(<<"contact_info">>, ReqJson, <<>>) of
@@ -309,7 +369,7 @@ maybe_update_request_info(Context, #{
                     contact_info => NewContactInfo,
                     share_phone_number => NewSharePhoneNumber,
                     medias => NewMedias,
-                    request_object_status => NewObjectStatus,
+                    requester_object_status => NewObjectStatus,
                     updated_by => app_util:get_requester_id(Context),
                     updated_time => zt_datetime:get_now()
     }),
@@ -321,14 +381,17 @@ maybe_update_request_info(Context, #{
 maybe_update_request_status(#{
     status := CurrentStatus,
     status_history := StatusHistoryDb,
+    requester_type := RequesterType,
     requester_info := RequesterInfoRaw
 } = SosRequestInfo, Context) ->
     ReqJson =  cb_context:req_json(Context),
     UserId =  cb_context:user_id(Context),
     RequesterInfo = zt_util:map_keys_to_atom(RequesterInfoRaw),
     RequesterId = maps:get(id,RequesterInfo,<<>>),
+    %RequesterType = maps:get(type,RequesterInfo,<<>>),
     Role = cb_context:role(Context),
-    case check_permission_update_request_status(RequesterId,UserId, Role) of 
+    lager:debug("maybe_update_request_status: Role: ~p,RequesterId: ~p,UserId: ~p,RequesterType: ~p~n",[Role,RequesterId,UserId,RequesterType ]),
+    case check_permission_update_request_status(RequesterType,RequesterId, UserId, Role) of 
         false -> {error,forbidden};
         true -> 
             NewStatus = wh_json:get_value(<<"status">>, ReqJson,<<>>),
@@ -347,27 +410,71 @@ maybe_update_request_status(#{
                         note => wh_json:get_value(<<"note">>, ReqJson,<<>>),
                         time => zt_datetime:get_now()
                     }, StatusHistoryDb),
+                
                 NewSosRequestInfo = 
                         maps:merge(SosRequestInfo, #{
                             status => NewStatus,
                             status_history => NewStatusHistory
                         }),
-                sos_request_db:save(NewSosRequestInfo),
-                {success,NewSosRequestInfo}
+                NewSosRequestInfo2 = 
+                    case NewStatus of 
+                        ?SOS_REQUEST_STATUS_VERIFIED -> 
+                            maps:merge(NewSosRequestInfo, #{
+                                verify_status => ?SOS_REQUEST_STATUS_VERIFIED
+                            });
+                        _ -> NewSosRequestInfo
+                    end,
+                sos_request_db:save(NewSosRequestInfo2),
+                {success,NewSosRequestInfo2}
             end
     end.
 
+maybe_verify(#{
+    verify_status := CurrentVerifyStatus,
+    status_history := StatusHistoryDb
+} = SosRequestInfo, Context) ->
+    ReqJson =  cb_context:req_json(Context),
+    UserId =  cb_context:user_id(Context),
+    NewStatus = wh_json:get_value(<<"status">>, ReqJson,<<>>),
+    case change_request_verify_status(CurrentVerifyStatus, NewStatus) of 
+                CurrentVerifyStatus -> {warning, status_nochange};
+                NewStatus ->
+                    #{
+                       first_name := FirstName,
+                       last_name := LastName
+                    } = user_db:find(UserId),
+                    NewStatusHistory = add_status_history(#{
+                        user_id => UserId,
+                        first_name => FirstName,
+                        last_name => LastName,
+                        status => NewStatus,
+                        note => wh_json:get_value(<<"note">>, ReqJson,<<>>),
+                        time => zt_datetime:get_now()
+                    }, StatusHistoryDb),
+                
+                NewSosRequestInfo = 
+                        maps:merge(SosRequestInfo, #{
+                            verify_status => NewStatus,
+                            status_history => NewStatusHistory
+                        }),
+            
+                sos_request_db:save(NewSosRequestInfo),
+                {success,NewSosRequestInfo}
+            end.
 add_status_history(StatusInfo, undefined) -> 
     add_status_history(StatusInfo, []); 
 
 add_status_history(StatusInfo, CurrentStatusHistory) when is_list(CurrentStatusHistory) -> 
     [StatusInfo|CurrentStatusHistory].
 
-%todo: review role
-check_permission_update_request_status(RequesterId, RequesterId, _) -> true;
-check_permission_update_request_status(_, _, ?USER_ROLE_OPERATOR) -> true;
-check_permission_update_request_status(_, _, ?USER_ROLE_ADMIN) -> true;
-check_permission_update_request_status(_, _, _) -> false.
+
+check_permission_update_request_status(?OBJECT_TYPE_USER, RequesterId, RequesterId, _) -> true;
+check_permission_update_request_status(_, _, _, ?USER_ROLE_OPERATOR) -> true;
+check_permission_update_request_status(_, _, _, ?USER_ROLE_ADMIN) -> true;
+check_permission_update_request_status(?OBJECT_TYPE_GROUP, GroupId, UserId, _) -> 
+    group_handler:is_group_member(GroupId, UserId);
+
+check_permission_update_request_status(_, _, _, _) -> false.
 
 % Supporter update their task
 maybe_update_support_status(Type, Id, _SosRequestInfo, <<>>) -> 
@@ -391,29 +498,54 @@ maybe_update_support_status(Type, Id, SosRequestInfo, NewSupportStatus) ->
                             });
                         _ -> SupportInfo
                     end
-                end,Supporters),
-    NewSosRequestInfo = 
-        maps:merge(SosRequestInfo,#{
-            supporters => NewSupporters
-         }),
-    {ok, NewSosRequestInfo}.
+        end,Supporters),
+    case NewSupporters of 
+        Supporters -> {error,no_change};
+        _ -> 
+            RequetStatusDb = maps:get(status, SosRequestInfo,<<>>),
+            NewRequestStatus = auto_update_request_status(NewSupportStatus,RequetStatusDb),
 
-get_supporter_info(?REQUESTER_TYPE_GROUP, Id) -> 
-   case  group_db:find(Id) of 
+            NewSosRequestInfo = 
+                maps:merge(SosRequestInfo,#{
+                    supporters => NewSupporters,
+                    status => NewRequestStatus,
+                    updated_time => zt_datetime:get_now()
+                }),
+            {ok, NewSosRequestInfo}
+    end.
+is_joined_request(Type, Id, SosRequestInfo) ->
+    Supporters = maps:get(supporters, SosRequestInfo, []),
+    lists:any(fun(SupportInfo) -> 
+        case SupportInfo of 
+            #{
+                <<"type">> := Type,
+                <<"id">> := Id
+            } ->
+                true;
+            _ -> false
+        end
+    end,Supporters).
+
+get_supporter_info(?REQUESTER_TYPE_GROUP, GroupId, UserId) -> 
+   case  group_db:find(GroupId) of 
    notfound -> {error,notfound};
   #{
         name := Name,
         contact_info := ContactInfo
   } -> 
-    #{
-        id => Id,
-        type => ?REQUESTER_TYPE_GROUP,
-        name => Name,
-        contact_info => ContactInfo
-    }
-end;
+        case group_handler:is_group_member(GroupId, UserId)  of 
+            true ->
+                #{
+                    id => GroupId,
+                    type => ?REQUESTER_TYPE_GROUP,
+                    name => Name,
+                    contact_info => ContactInfo
+                };
+            false -> {error,is_not_group_member}
+        end
+    end;
 
-get_supporter_info(?REQUESTER_TYPE_USER, Id) -> 
+get_supporter_info(?REQUESTER_TYPE_USER, Id, Id) -> 
    case user_db:find(Id) of 
    notfound -> {error,notfound};
   #{
@@ -436,7 +568,7 @@ get_supporter_info(?REQUESTER_TYPE_USER, Id) ->
         {error,other}
 end;
 
-get_supporter_info(_, _) -> {error, not_support}.
+get_supporter_info(_, _, _) -> {error, not_support}.
 
 get_target_type(?OBJECT_TYPE_USER = TargetType,Id) -> 
     case user_db:find(Id) of 
@@ -459,7 +591,24 @@ get_target_type(?OBJECT_TYPE_GROUP = TargetType,GroupId) ->
             {TargetType, GroupId,GroupName}
     end.
 
+
+get_my_target_type(?OBJECT_TYPE_USER = TargetType,Id,Id) -> 
+    get_target_type(TargetType,Id);
+
+get_my_target_type(?OBJECT_TYPE_GROUP = TargetType, GroupId, UserId) ->
+    case group_handler:is_group_member(GroupId, UserId)  of 
+        true ->
+            get_target_type(TargetType, GroupId);
+        false -> 
+             {error, forbidden}
+    end;
+
+
+get_my_target_type(_, _, _) -> {error, forbidden}.
+
+
 build_search_conditions(CurLocation, ReqJson) -> 
+    RequetTypes = wh_json:get_value(<<"type">>, ReqJson, <<>>),
     PriorityType = wh_json:get_value(<<"priority_type">>, ReqJson, <<>>),
     SupportTypes = wh_json:get_value(<<"support_types">>, ReqJson, <<>>),
     ObjectStatus = wh_json:get_value(<<"object_status">>, ReqJson, <<>>),
@@ -467,6 +616,7 @@ build_search_conditions(CurLocation, ReqJson) ->
     Keyword = wh_json:get_value(<<"keyword">>, ReqJson, <<>>),
     Distance = zt_util:to_integer(wh_json:get_value(<<"distance">>, ReqJson, 10)),
     SearchRequests = [
+        {types,RequetTypes},
         {priority_type,PriorityType},
         {support_types,SupportTypes},
         {object_status,ObjectStatus},
@@ -483,9 +633,13 @@ build_search_conditions(CurLocation, ReqJson) ->
 
 build_condition(_,<<>>) -> ignore;
 
+build_condition(types, Val) -> 
+    Vals = zt_util:split_string(Val),
+    {type,'in',Vals};
+
 build_condition(priority_type, Val) -> 
     Vals = zt_util:split_string(Val),
-    {priority_type,'in',Vals};
+    {<<"color_info.priority">>,'in',Vals};
 
 build_condition(support_types, Val) -> 
     Vals = zt_util:split_string(Val),
@@ -550,7 +704,7 @@ get_requester_info(?REQUESTER_TYPE_GROUP, Context) ->
             {?REQUESTER_TYPE_GROUP,maps:with([id,type,name],GroupInfo)}
     end;
 
-get_requester_info(_, Context) ->  {?REQUESTER_TYPE_GUEST,#{}}.
+get_requester_info(_, _Context) ->  {?REQUESTER_TYPE_GUEST,#{}}.
 
 get_suggester_info(Id) ->
     case user_db:find(Id) of
@@ -590,6 +744,24 @@ validate_suggest_target_id(ReqJson, Context) ->
     Val = wh_json:get_value(Key, ReqJson, <<>>),
     api_util:check_val(Context, Key, Val).
 
+-spec validate_request_type(api_binary(), cb_context:context()) -> cb_context:context().
+validate_request_type(ReqJson, Context) ->
+  Key = <<"type">>,
+  case wh_json:get_value(Key, ReqJson, <<>>) of
+    <<>> -> Context;
+    Val -> 
+        validate_request_type_value(Key, Val, Context)
+  end.
+
+-spec validate_request_type_value(binary(), binary(), cb_context:context()) -> cb_context:context().
+validate_request_type_value(Key, Val, Context) ->
+    case lists:member(Val, ?SOS_REQUEST_TYPES) of
+        true -> Context;
+        _ ->
+            Vals = zt_util:arr_to_str(?SOS_REQUEST_TYPES),
+            api_util:validate_error(Context, Key, <<"invalid">>, <<"Invalid ",Key/binary,". Value must be ",Vals/binary>>)
+    end.
+
 -spec validate_requester_type(api_binary(), cb_context:context()) -> cb_context:context().
 validate_requester_type(ReqJson, Context) ->
   Key = <<"requester_type">>,
@@ -618,8 +790,11 @@ validate_share_phone_number(ReqJson, Context) ->
 -spec validate_share_phone_number_update(api_binary(), cb_context:context()) -> cb_context:context().
 validate_share_phone_number_update(ReqJson, Context) ->
   Key = <<"share_phone_number">>,
-  Val = wh_json:get_value(Key, ReqJson, <<>>),
-  validate_share_phone_number_value(Key, Val, Context).
+  case wh_json:get_value(Key, ReqJson, <<>>) of 
+        <<>> -> Context;
+        Val ->
+            validate_share_phone_number_value(Key, Val, Context)
+  end.
 
 -spec validate_requester_type_value(binary(), binary(), cb_context:context()) -> cb_context:context().
 validate_requester_type_value(Key, Val, Context) ->

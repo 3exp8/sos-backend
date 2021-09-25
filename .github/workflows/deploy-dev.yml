@@ -1,0 +1,64 @@
+name: deploy-dev
+
+on:
+  push:
+    branches:
+      - 'master'
+      - 'github-action'
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v2
+      -
+        name: Set up QEMU
+        uses: docker/setup-qemu-action@v1
+      -
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      -
+        name: Login to GitHub Container Registry
+        uses: docker/login-action@v1 
+        with:
+          registry: ghcr.io
+          username: sos-hub-vn
+          password: ${{ secrets.GHCR_TOKEN }}
+      -
+        name: Build and push
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/sos-hub-vn/sos-backend:dev-latest
+            ghcr.io/sos-hub-vn/sos-backend:dev-1.0.0 
+      - 
+        name: Inject secrets
+        env:
+          CALLER: ${{ secrets.BACKEND_OTP_CALLER }}
+          REMINDER_CAMPAIGN_ID: ${{ secrets.BACKEND_OTP_REMINDER_CAMPAIGN_ID }}
+          REMINDER_HOST: ${{ secrets.BACKEND_OTP_REMINDER_HOST }}
+          REMINDER_SECRET_KEY: ${{ secrets.BACKEND_OTP_SECRET_KEY }}
+          AWS_REGION: ${{ secrets.DEV_BACKEND_AWS_REGION }}
+          S3_BUCKET: ${{ secrets.DEV_BACKEND_S3_BUCKET }}
+          S3_ACCESS_KEY_ID: ${{ secrets.DEV_BACKEND_S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.DEV_BACKEND_S3_SECRET_ACCESS_KEY }}
+        run: |
+          sed -i -e 's/<<caller>>/${{ env.CALLER }}/g' \
+                 -e 's/<<reminder_campaign_id>>/${{ env.REMINDER_CAMPAIGN_ID }}/g' \
+                 -e 's/<<reminder_host>>/${{ env.REMINDER_HOST }}/g' \
+                 -e 's/<<reminder_secret_key>>/${{ env.REMINDER_SECRET_KEY }}/g' \
+                 -e 's/<<aws_region>>/${{ env.AWS_REGION }}/g' \
+                 -e 's/<<s3_bucket>>/${{ env.S3_BUCKET }}/g' \
+                 -e 's/<<s3_access_key_id>>/${{ env.S3_ACCESS_KEY_ID }}/g' \
+                 -e 's/<<s3_secret_access_key>>/${{ env.S3_SECRET_ACCESS_KEY }}/g' \
+                 ./k8s/deploy-dev.yaml
+      -
+         name: Push to k8s
+         uses: steebchen/kubectl@v2.0.0
+         with:
+           config: ${{ secrets.VINACIS_KUBE_CONFIG }}
+           command: apply -f ./k8s/deploy-dev.yaml --namespace=backend

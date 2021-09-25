@@ -8,15 +8,19 @@
     get_color_codes/0,
     get_color_type/1,
     get_high_priority_color/1,
-    is_key_exist/1,
+    is_key_exist/3,
     validate_type/2,
     validate_group/2,
     validate_value/2, 
     validate_content_type/2
 ]).
 
-is_key_exist( Key) ->
-	case configuration_db:find_by_conditions([{key,Key}], [], 1, 0) of 
+is_key_exist(Type, Group, Key) ->
+	case configuration_db:find_by_conditions([
+        {type, Type},
+        {group, Group},
+        {key,Key}
+    ], [], 1, 0) of 
     [ConfigurationDb] when is_map(ConfigurationDb) ->
       true ;
     [] ->
