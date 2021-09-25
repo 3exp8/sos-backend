@@ -30,6 +30,7 @@
 
 -define(PATH_CLUSTER,<<"cluster">>).
 -define(PATH_INITDATA,<<"initdata">>).
+-define(PATH_INFO,<<"info">>).
 
 init() ->
 	_ = crossbar_bindings:bind(<<"*.resource_exists.systemctl">>, ?MODULE, 'resource_exists'),
@@ -42,8 +43,7 @@ init() ->
 
 
 -spec allowed_methods() -> http_methods().
-allowed_methods() ->
-	[].
+allowed_methods() -> [].
 
 -spec allowed_methods(path_token()) -> http_methods().
 allowed_methods(_) ->
@@ -60,35 +60,33 @@ resource_exists() -> 'true'.
 resource_exists(_) -> 'true'.
 
 -spec authenticate(cb_context:context()) -> boolean().
-
-authenticate(Context) ->  true.
-
+authenticate(_Context) ->  true.
 
 -spec authenticate(cb_context:context(),path_token()) -> boolean().
+authenticate(_Context,?PATH_INFO) ->  true;
 
 authenticate(Context,?PATH_CLUSTER) -> 
 	Token = cb_context:auth_token(Context),
     app_util:oauth2_authentic(Token, Context);
 
-authenticate(Context,?PATH_INITDATA) ->  true.
+authenticate(_Context,?PATH_INITDATA) ->  true.
 
 -spec authorize(cb_context:context()) -> boolean().
-authorize(Context) -> true.
+authorize(_Context) -> true.
 
 -spec authorize(cb_context:context(),path_token()) -> boolean().
 authorize(Context,?PATH_CLUSTER) -> 
 	Role = cb_context:role(Context),
 	Role == ?USER_ROLE_SYSTEM;
 
-authorize(Context,?PATH_INITDATA) -> true.
-
+authorize(_Context,?PATH_INITDATA) -> true;
+authorize(_Context,?PATH_INFO) -> true.
 
 -spec validate(cb_context:context() ) ->  cb_context:context().
 
 %% Validate resource : /api/v1/tax_codes/{id}
 validate(Context) ->
 	validate_request(Context, cb_context:req_verb(Context)).   
-
 
 -spec validate(cb_context:context(),path_token()) ->  cb_context:context().
 
@@ -133,6 +131,15 @@ handle_post(Context, ?PATH_INITDATA) ->
 										,{fun cb_context:set_resp_status/2, 'success'}])
 end.
 
+handle_get({Req, Context}, ?PATH_INFO) ->
+    RespData  = #{
+		node => node(),
+		cluster => systemctl_handler:list_nodes()
+	},
+	{Req, cb_context:setters(Context
+                                ,[{fun cb_context:set_resp_data/2, RespData}
+                                  ,{fun cb_context:set_resp_status/2, 'success'}])};
+
 handle_get({Req, Context}, ?PATH_CLUSTER) -> 
     RespData  = #{
         nodes => systemctl_handler:list_nodes()
@@ -162,6 +169,10 @@ validate_request(Context, ?HTTP_GET) ->
 validate_request(Context, ?PATH_CLUSTER, ?HTTP_GET) ->
 	cb_context:setters(Context
 		,[{fun cb_context:set_resp_status/2, 'success'}]);
+
+validate_request(Context, ?PATH_INFO, ?HTTP_GET) ->
+        cb_context:setters(Context
+            ,[{fun cb_context:set_resp_status/2, 'success'}]);
 
 validate_request(Context, ?PATH_INITDATA, ?HTTP_GET) ->
         cb_context:setters(Context
