@@ -341,26 +341,26 @@ set_value_normalizer_test() ->
 
     ?assertEqual(wh_json:normalize_jobj(?T5R1), ?T5R1V).
 
-to_querystring_test() ->
-    Tests = [{<<"{}">>, <<>>}
-             ,{<<"{\"foo\":\"bar\"}">>, <<"foo=bar">>}
-             ,{<<"{\"foo\":\"bar\",\"fizz\":\"buzz\"}">>, <<"foo=bar&fizz=buzz">>}
-             ,{<<"{\"foo\":\"bar\",\"fizz\":\"buzz\",\"arr\":[1,3,5]}">>, <<"foo=bar&fizz=buzz&arr[]=1&arr[]=3&arr[]=5">>}
-             ,{<<"{\"Msg-ID\":\"123-abc\"}">>, <<"Msg-ID=123-abc">>}
-             ,{<<"{\"url\":\"http://user:pass@host:port/\"}">>, <<"url=http%3A%2F%2Fuser%3Apass%40host%3Aport%2F">>}
-             ,{<<"{\"topkey\":{\"subkey1\":\"v1\",\"subkey2\":\"v2\",\"subkey3\":[\"v31\",\"v32\"]}}">>
-                   ,<<"topkey[subkey1]=v1&topkey[subkey2]=v2&topkey[subkey3][]=v31&topkey[subkey3][]=v32">>}
-             ,{<<"{\"topkey\":{\"subkey1\":\"v1\",\"subkey2\":{\"k3\":\"v3\"}}}">>
-                   ,<<"topkey[subkey1]=v1&topkey[subkey2][k3]=v3">>}
-            ],
-    lists:foreach(fun({JSON, QS}) ->
-                          QS1 = wh_util:to_binary(
-                                  wh_json:to_querystring(
-                                    wh_json:decode(JSON)
-                                   )
-                                 ),
-                          ?assertEqual(QS, QS1)
-                  end, Tests).
+% to_querystring_test() ->
+%     Tests = [{<<"{}">>, <<>>}
+%              ,{<<"{\"foo\":\"bar\"}">>, <<"foo=bar">>}
+%              ,{<<"{\"foo\":\"bar\",\"fizz\":\"buzz\"}">>, <<"foo=bar&fizz=buzz">>}
+%              ,{<<"{\"foo\":\"bar\",\"fizz\":\"buzz\",\"arr\":[1,3,5]}">>, <<"foo=bar&fizz=buzz&arr[]=1&arr[]=3&arr[]=5">>}
+%              ,{<<"{\"Msg-ID\":\"123-abc\"}">>, <<"Msg-ID=123-abc">>}
+%              ,{<<"{\"url\":\"http://user:pass@host:port/\"}">>, <<"url=http%3A%2F%2Fuser%3Apass%40host%3Aport%2F">>}
+%              ,{<<"{\"topkey\":{\"subkey1\":\"v1\",\"subkey2\":\"v2\",\"subkey3\":[\"v31\",\"v32\"]}}">>
+%                    ,<<"topkey[subkey1]=v1&topkey[subkey2]=v2&topkey[subkey3][]=v31&topkey[subkey3][]=v32">>}
+%              ,{<<"{\"topkey\":{\"subkey1\":\"v1\",\"subkey2\":{\"k3\":\"v3\"}}}">>
+%                    ,<<"topkey[subkey1]=v1&topkey[subkey2][k3]=v3">>}
+%             ],
+%     lists:foreach(fun({JSON, QS}) ->
+%                           QS1 = wh_util:to_binary(
+%                                   wh_json:to_querystring(
+%                                     wh_json:decode(JSON)
+%                                    )
+%                                  ),
+%                           ?assertEqual(QS, QS1)
+%                   end, Tests).
 
 get_values_test() ->
     ?assertEqual('true', are_all_there(?D1, [<<"d1v1">>, 'd1v2', [<<"d1v3.1">>, <<"d1v3.2">>, <<"d1v3.3">>]], [<<"d1k1">>, <<"d1k2">>, <<"d1k3">>])).
@@ -371,19 +371,19 @@ get_values_test() ->
                                    ,{<<"k3">>, ?K3_JOBJ}
                                    ,{<<"k4">>, [1,2,3]}
                                   ])).
-codec_test() ->
-    ?assertEqual(?CODEC_JOBJ, wh_json:decode(wh_json:encode(?CODEC_JOBJ))).
+% codec_test() ->
+%     ?assertEqual(?CODEC_JOBJ, wh_json:decode(wh_json:encode(?CODEC_JOBJ))).
 
 are_all_there(JObj, Vs, Ks) ->
     {Values, Keys} = wh_json:get_values(JObj),
     lists:all(fun(K) -> lists:member(K, Keys) end, Ks)
         andalso lists:all(fun(V) -> lists:member(V, Values) end, Vs).
 
-find_value_test() ->
-    JObjs = wh_json:decode(<<"[{\"k1\":\"v1\"},{\"k1\":\"v2\"}]">>),
-    ?assertEqual(<<"{\"k1\":\"v1\"}">>, wh_json:encode(wh_json:find_value(<<"k1">>, <<"v1">>, JObjs))),
-    ?assertEqual(<<"{\"k1\":\"v2\"}">>, wh_json:encode(wh_json:find_value(<<"k1">>, <<"v2">>, JObjs))),
-    ?assertEqual('undefined', wh_json:find_value(<<"k1">>, <<"v3">>, JObjs)).
+% find_value_test() ->
+%     JObjs = wh_json:decode(<<"[{\"k1\":\"v1\"},{\"k1\":\"v2\"}]">>),
+%     ?assertEqual(<<"{\"k1\":\"v1\"}">>, wh_json:encode(wh_json:find_value(<<"k1">>, <<"v1">>, JObjs))),
+%     ?assertEqual(<<"{\"k1\":\"v2\"}">>, wh_json:encode(wh_json:find_value(<<"k1">>, <<"v2">>, JObjs))),
+%     ?assertEqual('undefined', wh_json:find_value(<<"k1">>, <<"v3">>, JObjs)).
 
 insert_value_test() ->
     JObj = wh_json:decode(<<"{\"k1\":\"v1\",\"k2\":\"v2\"}">>),

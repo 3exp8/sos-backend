@@ -1,5 +1,4 @@
 -module(sos_request_handler).
-
 -include("crossbar.hrl").
 -include("app.hrl").
 
@@ -43,8 +42,6 @@
     is_owner_or_admin/3,
     validate_update_verify_status/2
 ]).
-
-
 
 is_owner_or_admin(?USER_ROLE_ADMIN, _UserId, _Info) -> true;
 is_owner_or_admin(?USER_ROLE_OPERATOR, _UserId, _Info) -> true;
