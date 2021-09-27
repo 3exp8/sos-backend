@@ -293,6 +293,7 @@ handle_post(Context, ?PATH_SEARCH) ->
         {Total, Requests} = sos_request_db:find_count_by_conditions(FinalConds, FinalSortConds, Limit, Offset),
         lager:info("Total Request  ~p found ~n",[Total]),
         UserId = cb_context:user_id(Context),
+        Role = cb_context:role(Context),
     
         FilteredGroups = group_handler:find_groups_by_user(UserId),
         FilteredRequests = 
@@ -301,7 +302,7 @@ handle_post(Context, ?PATH_SEARCH) ->
                 NewInfo2 = sos_request_handler:maybe_filter_bookmark_by_group(FilteredGroups, NewInfo),
                 get_sub_fields(NewInfo2,[bookmarks]),
                 IsSharePhoneNumber = maps:get(share_phone_number,NewInfo2,<<>>),
-                sos_request_handler:maybe_hide_phone_number(IsSharePhoneNumber,NewInfo2)
+                sos_request_handler:maybe_hide_phone_number(Role, IsSharePhoneNumber,NewInfo2)
             end,Requests),
 
         PropsRequestsWithTotal = 
@@ -710,15 +711,15 @@ validate_request(?PATH_SEARCH, Context, ?HTTP_POST) ->
                 Context1,
                 ValidateFuns);
 
-validate_request(Id, Context, ?HTTP_POST) ->
+validate_request(_Id, Context, ?HTTP_POST) ->
     ReqJson = cb_context:req_json(Context),
     Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
     ValidateFuns = [
         fun sos_request_handler:validate_share_phone_number_update/2
     ],
     lists:foldl(fun (F, C) ->
-                        F(ReqJson, C)
-                end,
+            F(ReqJson, C)
+        end,
     Context1,ValidateFuns);
 
 validate_request(_Id, Context, ?HTTP_DELETE) ->

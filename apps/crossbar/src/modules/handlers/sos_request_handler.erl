@@ -9,7 +9,7 @@
     is_joined_request/3,
     is_suggest_request/3,
     filter_support_types/1,
-    maybe_hide_phone_number/2,
+    maybe_hide_phone_number/3,
     maybe_update_support_status/4,
     maybe_add_bookmarks/2,
     maybe_remove_bookmarks/3,
@@ -107,10 +107,10 @@ maybe_filter_bookmark_by_group(Groups, #{bookmarks := Bookmarks} = SosRequestInf
     end.
     
 
-
-maybe_hide_phone_number(?SHARE_PHONE_NUMBER_TYPE_PUBLIC,RequestInfo) -> RequestInfo;
-
-maybe_hide_phone_number(_,RequestInfo) -> 
+maybe_hide_phone_number(?USER_ROLE_ADMIN, _,RequestInfo) -> RequestInfo;
+maybe_hide_phone_number(?USER_ROLE_OPERATOR, _,RequestInfo) -> RequestInfo;
+maybe_hide_phone_number(_, ?SHARE_PHONE_NUMBER_TYPE_PUBLIC,RequestInfo) -> RequestInfo;
+maybe_hide_phone_number(_, _, RequestInfo) -> 
 
     #{
         contact_info := ContactInfoDb,
