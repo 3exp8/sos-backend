@@ -6,6 +6,7 @@
 -export([
     find_groups_by_user/1,
     is_group_member/2,
+    is_group_admin/2,
     validate_type/2,
     validate_add_members/2,
     validate_remove_members/2,
@@ -34,17 +35,30 @@ find_groups_by_user(UserId) ->
 
 is_group_member(GroupId, UserId) ->
     Conds = [
-                {id, GroupId},
-                {'or',[
-                    {<<"members.id">>,UserId},
-                    {<<"members#id">>,UserId}
-                    ]}
-            ],
+        {id, GroupId},
+        {'or',[
+            {<<"members.id">>,UserId},
+            {<<"members#id">>,UserId}
+        ]}
+    ],
     case group_db:find_by_conditions(Conds,[],1,0) of
         [] -> false;
         _ -> true 
     end.
 
+is_group_admin(GroupId, UserId) ->
+    Conds = [
+        {id, GroupId},
+        {<<"members#role">>,?GROUP_USER_ROLE_ADMIN},
+        {'or',[
+            {<<"members.id">>,UserId},
+            {<<"members#id">>,UserId}
+        ]}
+    ],
+    case group_db:find_by_conditions(Conds,[],1,0) of
+        [] -> false;
+        _ -> true 
+    end.
  
 validate_type(ReqJson, Context) ->
     Type = wh_json:get_value(<<"type">>, ReqJson, <<>>),
@@ -58,14 +72,17 @@ validate_add_members(ReqJson, Context) ->
         Members when is_list(Members) ->
             AllMemberOk = 
                 lists:all(fun(Val) ->
-                    case {
-                        proplists:get_value(<<"id">>,Val,<<>>),
-                        proplists:get_value(<<"role">>,Val,<<>>)
-                    }
-                        of 
-                            {<<>>, _} -> false;
-                            {_, <<>>} -> false;
-                            _ -> true 
+                    Role = proplists:get_value(<<"role">>,Val,<<>>),
+                    Id = proplists:get_value(<<"id">>,Val,<<>>),
+                    case lists:member(Role, ?GROUP_USER_ROLES) of
+                        true -> 
+                                case { Id, Role}  of 
+                                    {<<>>, _} -> false;
+                                    {_, <<>>} -> false;
+                                    _ -> true 
+                                end;
+                        _ ->
+                            false
                     end
                 end,Members),
             case AllMemberOk of 
