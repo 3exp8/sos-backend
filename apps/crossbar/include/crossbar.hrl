@@ -142,6 +142,7 @@
       'cb_group', 
       'cb_news',
       'cb_notifications',
+      'cb_phone_number', 
       'cb_province', 
       'cb_reset',
       'cb_role',

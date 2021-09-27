@@ -10,10 +10,10 @@
 	,resource_exists/0
 	,handle_post/1
 	,authenticate/1
-	]).
+]).
 
 -export([
-          permissions/0
+    permissions/0
   ]).
 
 init() ->
@@ -56,59 +56,18 @@ validate(Context) ->
 handle_post(Context) ->
 
 	ReqJson =  cb_context:req_json(Context),
-   	Email = wh_json:get_value(<<"email">>, ReqJson, <<>>),
-	lager:debug("email confirm ReqJson: ~p~n",[ReqJson]),
-   	case user_db:find_by_email(Email) of 
-   	[#{
-		   id := UserId, 
-		   status := Status,
-		   first_name := FirstName,
-		   last_name := LastName,
-		   confirm_code := ConfirmCodeServer,
-		   confirm_code_created_time_dt := ConfirmCodeCreatedTime
-		} = Account | _] ->
-
-		CurrentTimeToSecond = zt_util:timestamp_second(),
-		ConfirmCodeCreatedTimeToSecond = zt_util:datetime_binary_to_second(ConfirmCodeCreatedTime),
-		case Status of
-		?INACTIVE ->
-			ConfirmCode = 
-			if 
-				CurrentTimeToSecond - ConfirmCodeCreatedTimeToSecond > ?DATESECOND  
-				orelse  ConfirmCodeServer == <<>>  ->
-					NewConfirmCode = zt_util:create_random_number(), 
-					NewConfirmCodeCreatedTime =  zt_datetime:get_now(),
-					UserDb = maps:merge(Account, #{
-						confirm_code => NewConfirmCode,
-						confirm_code_created_time_dt => NewConfirmCodeCreatedTime
-					}),
-					user_db:save(UserDb),
-					NewConfirmCode ;
-				true ->
-					ConfirmCodeServer 
-			end, 
-			spawn(fun() ->  
-				app_util:send_email({resend_confirm_code, Context, UserId, Email, FirstName, LastName, ConfirmCode, host, 80}) 
-			end),
-			  %% send confirm code to email
-			cb_context:setters(Context
-		                       ,[{fun cb_context:set_resp_status/2, 'success'}]);
-		_ ->
-			cb_context:setters(Context,
-    			[{fun cb_context:set_resp_error_msg/2, <<"Account Actived">>},
-    			 {fun cb_context:set_resp_status/2, <<"error">>},
-                 {fun cb_context:set_resp_error_code/2, 400}
-                ])
-		end;
-	Other ->
-		lager:debug("email confirm other: ~p~n",[Other]),
-		cb_context:setters(Context,
-    			[{fun cb_context:set_resp_error_msg/2, <<"Email Not Found">>},
-    			 {fun cb_context:set_resp_status/2, <<"error">>},
-                 {fun cb_context:set_resp_error_code/2, 404}
-                ])
-	end. 
-
+   	PhoneNumber = wh_json:get_value(<<"phone_number">>, ReqJson, <<>>),
+	Info = #{
+		phone_number => PhoneNumber,
+		confirm_code => user_handler:create_confirm_code_by_phone(PhoneNumber),
+		created_time => zt_datetime:get_now()
+	},
+	phone_number_db:save(Info),
+	RespData = <<"success">>,
+	cb_context:setters(Context
+                        ,[{fun cb_context:set_resp_data/2, RespData}
+                        ,{fun cb_context:set_resp_status/2, 'success'}]).
+   
 permissions() ->
   authorize_util:default_permission(?MODULE).
   
@@ -116,22 +75,29 @@ permissions() ->
 %% Internal Function
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -spec  validate_request(cb_context:context(), http_method()) -> cb_context:context().
-validate_request(Context, _Verb) ->
-	lager:info("validate_account: ~n",[]),
+validate_request(Context, ?HTTP_POST) ->
+		ReqJson = cb_context:req_json(Context),
+		Context1 = cb_context:setters(Context
+					  ,[{fun cb_context:set_resp_status/2, 'success'}]),	
+		ValidateFuns = [
+					   fun validate_phone_number/2
+					],
+		lists:foldl(fun(F, C) ->
+						F(ReqJson, C)
+					end, Context1,  ValidateFuns);
+
+validate_request(Context, _) ->
 	ReqJson = cb_context:req_json(Context),
 	Context1 = cb_context:setters(Context
-                       ,[{fun cb_context:set_resp_status/2, 'success'}]),	
-	Email = wh_json:get_value(<<"email">>, ReqJson, <<>>),	
-	case Email of
-		<<>> ->
-			api_util:validate_error(Context, <<"email">>, <<"required">>, <<"Field 'email' is required">>);
-        _ ->
-        	case re:run(zt_util:to_str(Email), ?EMAILREGX)  of 
-        		nomatch ->
-        			api_util:validate_error(Context, <<"email">>, <<"invalid">>, <<"Invalid Email">>);
-        		_ ->
-        			Context1 
-			end
-	end.
+								  ,[{fun cb_context:set_resp_status/2, 'success'}]),	
+	ValidateFuns = [
+		fun validate_phone_number/2
+	],
+	lists:foldl(fun(F, C) ->
+			F(ReqJson, C)
+	end, Context1,  ValidateFuns).
 
-
+validate_phone_number(ReqJson, Context) ->
+	Key = <<"phone_number">>,
+	Val = wh_json:get_value(Key, ReqJson, <<>>),
+	api_util:check_val(Context, Key, Val).

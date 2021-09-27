@@ -252,20 +252,31 @@ handle_put(Context) ->
     UserId = cb_context:user_id(Context),
     UserInfo = user_db:find(UserId),
     UserInfoFiltered = maps:with([phone_number, id, first_name, last_name],UserInfo),
-    InfoBase = get_info(ReqJson,UserId),
-    AdminInfo = maps:merge(UserInfoFiltered,#{
-        role => ?GROUP_USER_ROLE_ADMIN
-    }),
-    Info = maps:merge(InfoBase, #{
-        id => <<"group", Uuid/binary>>,
-        members => [AdminInfo]
-    }),
-   
-    group_db:save(Info),
-    cb_context:setters(Context,
-                       [{fun cb_context:set_resp_data/2, Info},
-                        {fun cb_context:set_resp_status/2, success}]).
-
+    ContactInfo = zt_util:to_map(wh_json:get_value(<<"contact_info">>, ReqJson,[])),
+    PhoneNumber = maps:get(phone_number, ContactInfo, <<>>),
+    case otp_handler:otp_valid(<<>>,PhoneNumber,wh_json:get_value(<<"confirm_code">>, ReqJson,<<>>)) of 
+    true -> 
+        InfoBase = get_info(ReqJson,UserId),
+        AdminInfo = maps:merge(UserInfoFiltered,#{
+            role => ?GROUP_USER_ROLE_ADMIN
+        }),
+        Info = maps:merge(InfoBase, #{
+            id => <<"group", Uuid/binary>>,
+            contact_info => ContactInfo,
+            members => [AdminInfo]
+        }),
+    
+        group_db:save(Info),
+        cb_context:setters(Context,
+                        [{fun cb_context:set_resp_data/2, Info},
+                            {fun cb_context:set_resp_status/2, success}]);
+    _ -> 
+        cb_context:setters(Context,[
+                {fun cb_context:set_resp_error_msg/2, <<"otp_invalid">>},
+                {fun cb_context:set_resp_status/2, <<"error">>},
+                {fun cb_context:set_resp_error_code/2, 400}
+            ])
+    end.
 
 -spec handle_post(cb_context:context(), path_token()) -> cb_context:context().
 handle_post(Context, Id) ->
@@ -285,40 +296,58 @@ handle_post(Context, Id) ->
             detail_info := DetailInfoDb,
             description := DescriptionDb
         } = InfoDb -> 
-         ReqJson =  cb_context:req_json(Context),
+        UserId = cb_context:user_id(Context),
+        case group_handler:is_group_admin(Id,UserId) of 
+            true -> 
+                ReqJson =  cb_context:req_json(Context),
+                
+                NewContactInfo = 
+                    case wh_json:get_value(<<"contact_info">>, ReqJson, <<>>) of
+                        <<>> ->  ContactInfoDb;
+                        ContactInfoProps -> 
+                            zt_util:to_map(ContactInfoProps)
+                    end,
+                PhoneNumberdb = maps:get(<<"phone_number">>, ContactInfoDb, <<>>),
+                NewPhoneNumber = maps:get(<<"phone_number">>, NewContactInfo, <<>>),
+                 
+                case otp_handler:otp_valid(PhoneNumberdb,NewPhoneNumber,wh_json:get_value(<<"confirm_code">>, ReqJson, <<>>)) of 
+                    true -> 
+                        NewDetailInfo = 
+                            case wh_json:get_value(<<"detail_info">>, ReqJson, <<>>) of
+                                <<>> ->  DetailInfoDb;
+                                DetailInfoProps -> zt_util:to_map(DetailInfoProps)
+                            end,
 
-         NewContactInfo = 
-            case wh_json:get_value(<<"contact_info">>, ReqJson, <<>>) of
-                <<>> ->  ContactInfoDb;
-                ContactInfoProps -> zt_util:to_map(ContactInfoProps)
-            end,
-
-        NewDetailInfo = 
-            case wh_json:get_value(<<"detail_info">>, ReqJson, <<>>) of
-                <<>> ->  DetailInfoDb;
-                DetailInfoProps -> zt_util:to_map(DetailInfoProps)
-            end,
-
-         NewInfo = 
-            maps:merge(InfoDb, #{
-                name => wh_json:get_value(<<"name">>, ReqJson,NameDb),
-                location => wh_json:get_value(<<"location">>, ReqJson, LocationDb),
-                avatar => wh_json:get_value(<<"avatar">>, ReqJson, AvatarDb),
-                address_info => province_handler:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,AddressInfoDb)),
-                contact_info => NewContactInfo,
-                detail_info => NewDetailInfo,
-                description => wh_json:get_value(<<"description">>, ReqJson,DescriptionDb),         
-                updated_time => zt_datetime:get_now(),
-                updated_by => cb_context:user_id(Context)
-            }),
-         group_db:save(NewInfo),
-         cb_context:setters(Context
-                            ,[{fun cb_context:set_resp_data/2, NewInfo}
-                              ,{fun cb_context:set_resp_status/2, 'success'}
-                             ])            
+                        NewInfo = 
+                            maps:merge(InfoDb, #{
+                                name => wh_json:get_value(<<"name">>, ReqJson,NameDb),
+                                location => wh_json:get_value(<<"location">>, ReqJson, LocationDb),
+                                avatar => wh_json:get_value(<<"avatar">>, ReqJson, AvatarDb),
+                                address_info => province_handler:get_address_detail_info(wh_json:get_value(<<"address_info">>, ReqJson,AddressInfoDb)),
+                                contact_info => NewContactInfo,
+                                detail_info => NewDetailInfo,
+                                description => wh_json:get_value(<<"description">>, ReqJson,DescriptionDb),         
+                                updated_time => zt_datetime:get_now(),
+                                updated_by => cb_context:user_id(Context)
+                            }),
+                        group_db:save(NewInfo),
+                        cb_context:setters(Context
+                                            ,[{fun cb_context:set_resp_data/2, NewInfo}
+                                            ,{fun cb_context:set_resp_status/2, 'success'}
+                                            ]);
+                    false -> 
+                        cb_context:setters(Context,[{fun cb_context:set_resp_error_msg/2, <<"otp_invalid">>},
+                            {fun cb_context:set_resp_status/2, <<"error">>},
+                            {fun cb_context:set_resp_error_code/2, 400}]
+                            )
+                end;
+            false ->
+                cb_context:setters(Context,[{fun cb_context:set_resp_error_msg/2, <<"forbidden">>},
+                                            {fun cb_context:set_resp_status/2, <<"error">>},
+                                            {fun cb_context:set_resp_error_code/2, 403}]
+                                    )
+        end                        
     end.
-
-
 
 -spec handle_post(cb_context:context(), path_token(), path_token()) -> cb_context:context().
 handle_post(Context, Id,?PATH_VERIFY) ->
@@ -493,7 +522,6 @@ get_info(ReqJson,UserId) ->
         location => wh_json:get_value(<<"location">>, ReqJson, <<"0.0,0.0">>),
         avatar => wh_json:get_value(<<"avatar">>, ReqJson, <<>>),
         address_info => AddressInfo,
-        contact_info => zt_util:to_map(wh_json:get_value(<<"contact_info">>, ReqJson,[])),
         detail_info => filter_detail_info(zt_util:to_map(wh_json:get_value(<<"detail_info">>, ReqJson,[]))),
         admin_id => <<>>,
         members => [],
