@@ -195,7 +195,6 @@ handle_get({Req, Context}, Id) ->
                                {fun cb_context:set_resp_error_code/2, 404}])}
     end.
 
-% sos_request_db:find_by_conditions([{<<"suggest_info.target_type">>,<<"group">>},{<<"suggest_info.target_id">>,<<"group372dfa628f08303797acb05751ddfc9a">>}], [], 5, 0).
 % sos_request_db:find_by_conditions([{<<"bookmarks#bookmarker_type">>,<<"group">>},{<<"bookmarks#bookmarker_id">>,<<"group372dfa628f08303797acb05751ddfc9a">>}], [], 5, 0).
 handle_get({Req, Context}, Id, ?PATH_BOOKMARK) ->
     case group_db:find(Id) of

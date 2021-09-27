@@ -228,9 +228,10 @@ handle_get({Req, Context}) ->
 handle_get({Req, Context}, Id) ->
     case sos_request_db:find(Id) of
         Db when is_map(Db) ->
+            Info = get_sub_fields(Db),
             {Req,
              cb_context:setters(Context,
-                                [{fun cb_context:set_resp_data/2, Db},
+                                [{fun cb_context:set_resp_data/2, Info},
                                  {fun cb_context:set_resp_status/2, success}])};
         _ ->
             {Req,
@@ -372,7 +373,7 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
                                 status => ?SOS_TASK_STATUS_OPEN
                             }),
                             NewSupporters = [SupporterInfo|SupportersDb],
-                            NewInfo =  maps:merge(RequestInfo,#{
+                            NewInfo = maps:merge(RequestInfo,#{
                                     is_joined => true,
                                     status => NewStatus,
                                     supporters => NewSupporters,
@@ -400,39 +401,50 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
     
     handle_post(Context, Id, ?PATH_SUGGEST) ->
         ReqJson = cb_context:req_json(Context),
-        case sos_request_db:find(Id) of
-            #{} = Info ->
-                TargetType = wh_json:get_value(<<"target_type">>, ReqJson),
-                TargetId = wh_json:get_value(<<"target_id">>, ReqJson),
-                case sos_request_handler:get_target_type(TargetType, TargetId) of 
-                    {error, Error} ->
-                        cb_context:setters(Context,[
-                            {fun cb_context:set_resp_error_msg/2, Error},
-                            {fun cb_context:set_resp_status/2, <<"error">>},
-                            {fun cb_context:set_resp_error_code/2, 400}
-                        ]);
+        TargetType = wh_json:get_value(<<"target_type">>, ReqJson),
+        TargetId = wh_json:get_value(<<"target_id">>, ReqJson),
+        case sos_request_handler:get_target_type(TargetType, TargetId) of 
+            {error, Error} ->
+                cb_context:setters(Context,[
+                    {fun cb_context:set_resp_error_msg/2, Error},
+                    {fun cb_context:set_resp_status/2, <<"error">>},
+                    {fun cb_context:set_resp_error_code/2, 400}
+                ]);
+            {_, _, TargetName} ->
+                case sos_request_db:find(Id) of
+                    #{
+                        suggests := SuggestsDb
+                    } = Info ->
+                        case sos_request_handler:is_suggest_request(TargetType,TargetId,SuggestsDb) of 
+                            false -> 
+                                UserId = cb_context:user_id(Context),
+                                SuggesterInfo = sos_request_handler:get_suggester_info(UserId),
+                                SuggestInfo = 
+                                    maps:merge(SuggesterInfo, #{
+                                        target_type => TargetType,
+                                        target_id => TargetId,
+                                        target_name => TargetName,
+                                        note => wh_json:get_value(<<"note">>, ReqJson,<<>>),
+                                        suggest_time => zt_datetime:get_now(),
+                                        status => ?SOS_REQUEST_SUGGEST_STATUS_OPEN
+                                    }),
 
-                    {_, _, TargetName} ->
-                        UserId = cb_context:user_id(Context),
-                        SuggesterInfo = sos_request_handler:get_suggester_info(UserId),
-                        SuggestInfo = 
-                            maps:merge(SuggesterInfo, #{
-                                target_type => TargetType,
-                                target_id => TargetId,
-                                target_name => TargetName,
-                                note => wh_json:get_value(<<"note">>, ReqJson,<<>>),
-                                suggest_time => zt_datetime:get_now(),
-                                status => ?SOS_REQUEST_SUGGEST_STATUS_OPEN
-                            }),
-                        NewInfo = 
-                            maps:merge(Info, #{
-                                suggest_info => SuggestInfo
-                            }),
-                        lager:debug("NewInfo: ~p~n",[NewInfo]),
-                        sos_request_db:save(NewInfo),
-                        cb_context:setters(Context,
-                                    [{fun cb_context:set_resp_data/2, NewInfo},
-                                        {fun cb_context:set_resp_status/2, success}])
+                                NewInfo = 
+                                    maps:merge(Info, #{
+                                        suggests => [SuggestInfo|SuggestsDb]
+                                    }),
+                                lager:debug("NewInfo: ~p~n",[NewInfo]),
+                                sos_request_db:save(NewInfo),
+                                cb_context:setters(Context,
+                                            [{fun cb_context:set_resp_data/2, NewInfo},
+                                                {fun cb_context:set_resp_status/2, success}]);
+                            true ->
+                                cb_context:setters(Context,
+                                [{fun cb_context:set_resp_error_msg/2, <<"You are always suggest this request">>},
+                                    {fun cb_context:set_resp_status/2, <<"error">>},
+                                    {fun cb_context:set_resp_error_code/2, 400}])
+                                    
+                        end
                 end;
             _ ->
                 cb_context:setters(Context,[
@@ -783,11 +795,15 @@ validate_request(_Id, ?PATH_VERIFY, Context, ?HTTP_POST) ->
 validate_request(_Id, _, Context, _Verb) ->
                 Context.
 
+get_sub_fields(Info) -> 
+    get_sub_fields(Info,[]).
+
+
 get_sub_fields(Info,OtherField) when is_atom(OtherField) ->
     get_sub_fields(Info,[OtherField]);
 
 get_sub_fields(Info,OtherFields) when is_list(OtherFields) ->
-    Fields = OtherFields ++ [created_by, updated_by, updated_time],
+    Fields = OtherFields ++ [created_by, updated_by, updated_time,suggest_info],
     maps:without(Fields, Info);
 
 get_sub_fields(Info,OtherFieldType) -> 

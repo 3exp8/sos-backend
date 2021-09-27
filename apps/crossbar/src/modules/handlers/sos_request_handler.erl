@@ -7,6 +7,7 @@
     get_supporter_info/3,
     get_suggester_info/1,
     is_joined_request/3,
+    is_suggest_request/3,
     filter_support_types/1,
     maybe_hide_phone_number/2,
     maybe_update_support_status/4,
@@ -525,6 +526,17 @@ is_joined_request(Type, Id, SosRequestInfo) ->
             _ -> false
         end
     end,Supporters).
+
+is_suggest_request(Type, Id, Suggests) ->
+    lists:any(fun(SuggestInfo) -> 
+        case SuggestInfo of 
+            #{
+                <<"target_type">> := Type,
+                <<"target_id">> := Id
+            } -> true;
+            _ -> false
+        end
+    end,Suggests).
 
 get_supporter_info(?REQUESTER_TYPE_GROUP, GroupId, UserId) -> 
    case  group_db:find(GroupId) of 
