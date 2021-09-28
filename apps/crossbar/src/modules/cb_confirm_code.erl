@@ -57,21 +57,33 @@ handle_post(Context) ->
 
 	ReqJson =  cb_context:req_json(Context),
    	PhoneNumber = wh_json:get_value(<<"phone_number">>, ReqJson, <<>>),
-	ConfirmCode = user_handler:create_confirm_code_by_phone(PhoneNumber),
-	Info = #{
-		phone_number => PhoneNumber,
-		confirm_code => ConfirmCode,
-		created_time => zt_datetime:get_now()
-	},
-	phone_number_db:save(Info),
-	user_handler:send_otp(PhoneNumber,ConfirmCode),
-	RespData = #{
-		phone_number => PhoneNumber,
-		expired_duration => otp_handler:get_otp_expired_duration()
-	},
-	cb_context:setters(Context
-                        ,[{fun cb_context:set_resp_data/2, RespData}
-                        ,{fun cb_context:set_resp_status/2, 'success'}]).
+	   case otp_actor:start_actor(PhoneNumber) of 
+			true -> 
+					ConfirmCode = user_handler:create_confirm_code_by_phone(PhoneNumber),
+					Info = #{
+						phone_number => PhoneNumber,
+						confirm_code => ConfirmCode,
+						created_time => zt_datetime:get_now()
+					},
+					phone_number_db:save(Info),
+					user_handler:send_otp(PhoneNumber,ConfirmCode),
+					otp_actor:add_resend(PhoneNumber),
+					RespData = #{
+						phone_number => PhoneNumber,
+						expired_duration => otp_handler:get_otp_expired_duration()
+					},
+					
+					cb_context:setters(Context
+										,[{fun cb_context:set_resp_data/2, RespData}
+										,{fun cb_context:set_resp_status/2, 'success'}]);
+			OtpError ->
+					Context2 = api_util:validate_error(Context, <<"otp">>, <<"invalid">>, OtpError),
+					cb_context:setters(Context2,[
+											{fun cb_context:set_resp_error_msg/2, OtpError},
+											{fun cb_context:set_resp_status/2, <<"error">>},
+											{fun cb_context:set_resp_error_code/2, 400}
+					])
+		end.
    
 permissions() ->
   authorize_util:default_permission(?MODULE).
