@@ -57,13 +57,18 @@ handle_post(Context) ->
 
 	ReqJson =  cb_context:req_json(Context),
    	PhoneNumber = wh_json:get_value(<<"phone_number">>, ReqJson, <<>>),
+	ConfirmCode = user_handler:create_confirm_code_by_phone(PhoneNumber),
 	Info = #{
 		phone_number => PhoneNumber,
-		confirm_code => user_handler:create_confirm_code_by_phone(PhoneNumber),
+		confirm_code => ConfirmCode,
 		created_time => zt_datetime:get_now()
 	},
 	phone_number_db:save(Info),
-	RespData = <<"success">>,
+	user_handler:send_otp(PhoneNumber,ConfirmCode),
+	RespData = #{
+		phone_number => PhoneNumber,
+		expired_duration => otp_handler:get_otp_expired_duration()
+	},
 	cb_context:setters(Context
                         ,[{fun cb_context:set_resp_data/2, RespData}
                         ,{fun cb_context:set_resp_status/2, 'success'}]).

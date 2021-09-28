@@ -2,6 +2,7 @@
 
 -export([
     check_confirm_code/2,
+    get_otp_expired_duration/0,
     otp_valid/3
 ]).
 
@@ -14,7 +15,7 @@ check_confirm_code(PhoneNumber, ConfirmCode)->
             created_time := CreatedTime
         } -> 
             EplasedSeconds = zt_datetime:diff_second(CreatedTime),
-            OtpExpiredDuration = zt_util:to_integer(application:get_env(crossbar, otp_expired_duration, 120)),
+            OtpExpiredDuration = get_otp_expired_duration(),
             if 
                 EplasedSeconds > OtpExpiredDuration ->  expired;
                 true -> true
@@ -30,3 +31,6 @@ otp_valid(_, _NewPhoneNumber, <<>>) -> false;
 
 otp_valid(_, NewPhoneNumber, ConfirmCode) ->
     check_confirm_code(NewPhoneNumber, ConfirmCode).
+
+get_otp_expired_duration() -> 
+    zt_util:to_integer(application:get_env(crossbar, otp_expired_duration, 120)).
