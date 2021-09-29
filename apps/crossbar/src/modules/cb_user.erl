@@ -10,6 +10,7 @@
 -define(PERMISSION_CREATE_USER, <<"create_staff">>).
 -define(PERMISSION_CREATE_USER_DESC, {?PERMISSION_CREATE_USER, <<"User create other users">>}).
 -define(PATH_SUGGEST, <<"suggest">>).
+-define(PATH_MY_SUGGEST, <<"mysuggests">>).
 -define(PATH_BOOKMARK, <<"bookmark">>).
 -define(PATH_MYTASKS, <<"tasks">>).
 -define(PATH_MYREQUESTS, <<"sos_requests">>).
@@ -151,6 +152,7 @@ authorize(_Context, ?PATH_CONFIRM = _Path) -> true;
 authorize(_Context, ?PATH_SEARCH = _Path) -> true;
 authorize(_Context, ?PATH_BOOKMARK = _Path) -> true;
 authorize(_Context, ?PATH_SUGGEST = _Path) -> true;
+authorize(_Context, ?PATH_MY_SUGGEST = _Path) -> true;
 authorize(_Context, ?PATH_MYTASKS = _Path) -> true;
 authorize(_Context, ?PATH_MYREQUESTS = _Path) -> true;
 
@@ -389,25 +391,48 @@ handle_get({Req, Context}, ?PATH_SUGGEST) ->
     lists:map(fun(#{id := GroupId}) -> 
       GroupId
     end,Groups),
-lager:debug("GroupIds: ~p~n",[GroupIds]),
+  lager:debug("GroupIds: ~p~n",[GroupIds]),
   SosRequests = 
               sos_request_db:find_by_conditions([
                 {'or',[
                   {'and',[
-                      {<<"suggest_info.target_type">>,?OBJECT_TYPE_USER},
-                      {<<"suggest_info.target_id">>,UserId}
+                      {<<"suggests.target_type">>,?OBJECT_TYPE_USER},
+                      {<<"suggests.target_id">>,UserId}
                   ]},
                   {
                     'and',[
-                      {<<"suggest_info.target_type">>,?OBJECT_TYPE_GROUP},
-                      {<<"suggest_info.target_id">>,'in',GroupIds}
+                      {<<"suggests.target_type">>,?OBJECT_TYPE_GROUP},
+                      {<<"suggests.target_id">>,'in',GroupIds}
                   ]}
+                %   {'and',[
+                %     {<<"suggests#target_type">>,?OBJECT_TYPE_USER},
+                %     {<<"suggests#target_id">>,UserId}
+                % ]},
+                % {
+                %   'and',[
+                %     {<<"suggests#target_type">>,?OBJECT_TYPE_GROUP},
+                %     {<<"suggests#target_id">>,'in',GroupIds}
+                % ]}
               ]
           }], PropQueryJson, Limit, Offset),
         {Req,
          cb_context:setters(Context,
                             [{fun cb_context:set_resp_data/2, SosRequests},
                              {fun cb_context:set_resp_status/2, success}])};
+
+    handle_get({Req, Context}, ?PATH_MY_SUGGEST) ->
+        UserId = cb_context:user_id(Context),
+        QueryJson = cb_context:query_string(Context),
+        Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
+        Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
+        PropQueryJson = wh_json:to_proplist(QueryJson),
+       
+        SosRequests = 
+            sos_request_db:find_by_conditions([{<<"suggests.suggester_id">>,UserId}], PropQueryJson, Limit, Offset),
+        {Req,
+              cb_context:setters(Context,
+                    [{fun cb_context:set_resp_data/2, SosRequests},
+                    {fun cb_context:set_resp_status/2, success}])};
 
 handle_get({Req, Context}, Id) ->
   Role = cb_context:role(Context),	

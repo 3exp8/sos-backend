@@ -230,8 +230,23 @@ handle_get({Req, Context}, Id, ?PATH_SUGGEST) ->
             PropQueryJson = wh_json:to_proplist(QueryJson),
             SosRequests = 
                 sos_request_db:find_by_conditions([
-                    {<<"suggest_info.target_type">>,?OBJECT_TYPE_GROUP},
-                    {<<"suggest_info.target_id">>,Id}
+                    {'or',
+                        [
+                            % {
+                            %     'and',[
+                            %         {<<"suggests#target_type">>,?OBJECT_TYPE_GROUP},
+                            %         {<<"suggests#target_id">>,Id}
+                            %     ]
+                            % },
+                            {
+                                'and',[
+                                    {<<"suggests.target_type">>,?OBJECT_TYPE_GROUP},
+                                    {<<"suggests.target_id">>,Id}
+                                ]
+                            }
+
+                        ]
+                    }
                 ], PropQueryJson, Limit, Offset),
           {Req,
            cb_context:setters(Context,
