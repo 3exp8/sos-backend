@@ -8,6 +8,7 @@
     get_suggester_info/1,
     is_joined_request/3,
     is_suggest_request/3,
+    get_suggest_request/3,
     filter_support_types/1,
     maybe_hide_phone_number/3,
     maybe_update_support_status/4,
@@ -17,6 +18,7 @@
     get_my_target_type/3,
     validate_bookmarker_type/2,
     validate_bookmarker_id/2,
+    validate_suggest_targets/2,
     validate_suggest_target_type/2,
     validate_suggest_target_id/2,
     validate_request_type/2,
@@ -528,7 +530,8 @@ is_joined_request(Type, Id, SosRequestInfo) ->
     end,Supporters).
 
 is_suggest_request(Type, Id, Suggests) ->
-    lists:any(fun(SuggestInfo) -> 
+    lists:any(fun(SuggestInfo) ->
+        
         case SuggestInfo of 
             #{
                 <<"target_type">> := Type,
@@ -537,6 +540,20 @@ is_suggest_request(Type, Id, Suggests) ->
             _ -> false
         end
     end,Suggests).
+
+get_suggest_request(Type, Id, []) -> notfound;
+
+get_suggest_request(Type, Id, [SuggestInfoRaw|Suggests]) ->
+    SuggestInfo = zt_util:map_keys_to_atom(SuggestInfoRaw),
+    case SuggestInfo of 
+        #{
+                target_type := Type,
+                target_id := Id
+        } -> 
+            SuggestInfo;
+        _ -> 
+            get_suggest_request(Type, Id, Suggests)
+    end.
 
 get_supporter_info(?REQUESTER_TYPE_GROUP, GroupId, UserId) -> 
    case  group_db:find(GroupId) of 
@@ -730,6 +747,18 @@ get_suggester_info(Id) ->
             suggester_name => zt_util:full_name(FirstName, LastName)
         }
     end.
+
+-spec validate_suggest_targets(api_binary(), cb_context:context()) -> cb_context:context().
+validate_suggest_targets(ReqJson, Context) ->
+  Key = <<"targets">>,
+  Val = wh_json:get_value(Key, ReqJson, <<>>),
+  api_util:check_val(Context, Key, Val).
+%   case api_util:check_val(Context, Key, Val) of 
+%     Context -> 
+%         validate_suggest_taget_type_value(Key, Val, Context);
+%     ErrorContext -> 
+%         ErrorContext
+%   end.
 
 -spec validate_suggest_target_type(api_binary(), cb_context:context()) -> cb_context:context().
 validate_suggest_target_type(ReqJson, Context) ->

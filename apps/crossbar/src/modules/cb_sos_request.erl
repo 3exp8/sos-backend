@@ -402,6 +402,58 @@ handle_put(Context, Id, ?PATH_SUPPORT) ->
     
     handle_post(Context, Id, ?PATH_SUGGEST) ->
         ReqJson = cb_context:req_json(Context),
+
+        case sos_request_db:find(Id) of
+            #{
+                suggests := SuggestsDb
+            } = Info ->
+
+                Targets = wh_json:get_value(<<"targets">>, ReqJson,[]),
+                UserId = cb_context:user_id(Context),
+                SuggesterInfo = sos_request_handler:get_suggester_info(UserId),
+                Note = wh_json:get_value(<<"note">>, ReqJson,<<>>),
+                FilterTargets = 
+                    lists:filtermap(fun(TargetProps)-> 
+                        TargetType = proplists:get_value(<<"target_type">>, TargetProps),
+                        TargetId = proplists:get_value(<<"target_id">>, TargetProps),
+                        case sos_request_handler:get_suggest_request(TargetType,TargetId,SuggestsDb) of 
+                            notfound ->
+                                case sos_request_handler:get_target_type(TargetType, TargetId) of 
+                                    {error, Error} -> false;
+                                    {_, _, TargetName} ->
+                                        SuggestInfo = 
+                                            maps:merge(SuggesterInfo, #{
+                                                target_type => TargetType,
+                                                target_id => TargetId,
+                                                target_name => TargetName,
+                                                note => proplists:get_value(<<"note">>, TargetProps,Note),
+                                                suggest_time => zt_datetime:get_now(),
+                                                status => ?SOS_REQUEST_SUGGEST_STATUS_OPEN
+                                            }),
+                                            {true, SuggestInfo};
+                                    _ ->
+                                        false
+                                end;
+                                
+                            SuggestInfoDb -> {true,SuggestInfoDb}    
+                        end
+                    
+                    end,Targets),
+                    NewInfo = 
+                            maps:merge(Info, #{
+                                suggests => FilterTargets
+                            }),
+                    lager:debug("NewInfo: ~p~n",[NewInfo]),
+                    sos_request_db:save(NewInfo),
+                
+                    cb_context:setters(Context,
+                                    [{fun cb_context:set_resp_data/2, NewInfo},
+                                        {fun cb_context:set_resp_status/2, success}])
+                
+        end;
+
+    handle_post(Context, Id, {?PATH_SUGGEST}) ->
+        ReqJson = cb_context:req_json(Context),
         TargetType = wh_json:get_value(<<"target_type">>, ReqJson),
         TargetId = wh_json:get_value(<<"target_id">>, ReqJson),
         case sos_request_handler:get_target_type(TargetType, TargetId) of 
@@ -749,8 +801,10 @@ validate_request(_Id, ?PATH_SUGGEST, Context, ?HTTP_POST) ->
     ReqJson = cb_context:req_json(Context),
     Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
     ValidateFuns = [
-        fun sos_request_handler:validate_suggest_target_type/2,
-        fun sos_request_handler:validate_suggest_target_id/2
+        
+        fun sos_request_handler:validate_suggest_targets/2
+        % fun sos_request_handler:validate_suggest_target_type/2,
+        % fun sos_request_handler:validate_suggest_target_id/2
     ],
     lists:foldl(fun (F, C) ->
                         F(ReqJson, C)
