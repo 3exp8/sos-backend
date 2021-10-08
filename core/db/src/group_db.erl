@@ -10,6 +10,7 @@
             find_all/0,
             find_all/2,
             find_by_conditions/4,
+            find_count_by_conditions/4,
             reindex/0,
             reindex/1
         ]).
@@ -58,6 +59,13 @@ find_by_conditions(AccountQuery, Query, Limit, Offset) ->
   Conditions = build_query(AccountQuery, Query), 
   SortOrders = build_sort([], Query),
   sumo:find_by(?DOC, Conditions, SortOrders, Limit, Offset).
+
+-spec find_count_by_conditions(conditions(),conditions(),non_neg_integer(), non_neg_integer()) -> [?DOC:info()].
+find_count_by_conditions(AccountQuery, Query, Limit, Offset) ->
+  Conditions = build_query(AccountQuery, Query), 
+  SortOrders = build_sort([], Query),
+  Vals = sumo:find_by(?DOC, Conditions, SortOrders, Limit, Offset),
+  {length(Vals),Vals}.
 
 build_sort([], []) ->
   [{type, asc},{name, asc}];

@@ -23,6 +23,8 @@
 -spec sumo_wakeup(sumo:doc()) -> info().
 sumo_wakeup(Doc) ->
     DefaultTime = util_db:now_to_utc_binary({0,0,0}),
+    io:format("Doc: ~p~n",[Doc]),
+    lager:debug("Doc: ~p~n",[Doc]),
 	#{
         id =>  maps:get(id, Doc, <<>>),
         name =>  maps:get(name, Doc, <<>>),
@@ -37,6 +39,7 @@ sumo_wakeup(Doc) ->
         verify_status =>  maps:get(verify_status, Doc, <<>>),
         verify_info =>  maps:get(verify_info, Doc, #{}),
         description =>  maps:get(description, Doc, <<>>),
+        distance => maps:get(x_distance, Doc, 1.0),
         created_by => maps:get(created_by, Doc, <<>>),
         created_time => maps:get(created_time, Doc, DefaultTime),
         updated_by => maps:get(updated_by, Doc, <<>>),

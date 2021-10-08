@@ -53,11 +53,11 @@ init() ->
 -define(PATH_TYPE, <<"types">>).
 -define(PATH_SUGGEST, <<"suggest">>).
 -define(PATH_BOOKMARK, <<"bookmark">>).
-
+-define(PATH_SEARCH, <<"search">>).
 
 allowed_methods() -> [?HTTP_GET, ?HTTP_PUT].
 
-allowed_methods(_Id) -> [?HTTP_GET, ?HTTP_POST, ?HTTP_DELETE].
+allowed_methods(_Path) -> [?HTTP_GET, ?HTTP_POST, ?HTTP_DELETE].
 
 allowed_methods(_Id,?PATH_VERIFY) -> [?HTTP_POST];
 
@@ -71,7 +71,7 @@ allowed_methods(_Id,?PATH_BOOKMARK) -> [?HTTP_GET].
 resource_exists() -> true.
 
 -spec resource_exists(path_token()) -> true.
-resource_exists(_Id) -> true.
+resource_exists(_Path) -> true.
 
 -spec resource_exists(path_token(),path_token()) -> true.
 resource_exists(_Id,?PATH_BOOKMARK) -> true;
@@ -85,6 +85,8 @@ authenticate(Context) ->
     app_util:oauth2_authentic(Token, Context).
 
 -spec authenticate(cb_context:context(), path_token()) -> boolean().
+authenticate(_Context, ?PATH_SEARCH) ->true;
+
 authenticate(Context, _Path) ->
     Token = cb_context:auth_token(Context),
     app_util:oauth2_authentic(Token, Context).
@@ -109,6 +111,8 @@ authorize(Context, Path) ->
     authorize_verb(Context, Path, cb_context:req_verb(Context)).
 
 authorize_verb(_Context, _Path, ?HTTP_GET) -> true;
+
+authorize_verb(_Context, ?PATH_SEARCH, ?HTTP_POST) -> true;
 
 authorize_verb(Context, _Path, ?HTTP_POST) ->
     Role = cb_context:role(Context),
@@ -294,6 +298,50 @@ handle_put(Context) ->
     end.
 
 -spec handle_post(cb_context:context(), path_token()) -> cb_context:context().
+handle_post(Context, ?PATH_SEARCH) ->
+    try
+        lager:info("group search: ~n",[]),
+        ReqJson =  cb_context:req_json(Context),
+        Long = zt_util:to_str(wh_json:get_value(<<"long_position">>, ReqJson, <<"0.0">>)),
+        Lat = zt_util:to_str(wh_json:get_value(<<"lat_position">>, ReqJson, <<"0.0">>)),
+        CurrentLocation  =  Lat ++ "," ++ Long,
+        Unit = <<"km">>,
+        SortCondsList = wh_json:get_value(<<"sorts">>, ReqJson, [[{<<"sort_distance">>,asc}]]),
+        SortConds = group_handler:deformat_sorts(SortCondsList, zt_util:to_bin(CurrentLocation), Unit),
+        Conds = group_handler:build_search_conditions(CurrentLocation, ReqJson),
+        lager:info("Sort: ~p ~n Conds: ~p ~n",[ SortConds, Conds]),
+        QueryJson = cb_context:query_string(Context),
+        Limit = zt_util:to_integer(wh_json:get_value(<<"limit">>, QueryJson, ?DEFAULT_LIMIT)),
+        Offset = zt_util:to_integer(wh_json:get_value(<<"offset">>, QueryJson, ?DEFAULT_OFFSET)),
+        FinalConds = Conds,
+        lager:debug("search FinalConds: ~p~n",[FinalConds]),
+        %FinalSortConds = [{<<"sort_created_time">>,asc}|SortConds],
+        FinalSortConds = SortConds,
+        lager:debug("search FinalSortConds: ~p~n",[FinalSortConds]),
+        {Total, Groups} = group_db:find_count_by_conditions(FinalConds, FinalSortConds, Limit, Offset),
+        lager:info("Total Request  ~p found ~n",[Total]),
+
+        FilteredGroups = 
+            lists:map(fun (Info) ->
+                get_sub_fields_search(Info)
+            end,Groups),
+        PropsGroupsWithTotal = 
+                #{
+                    total => Total,
+                    groups => FilteredGroups
+                },
+        cb_context:setters(Context
+                           ,[{fun cb_context:set_resp_data/2, PropsGroupsWithTotal}
+                             ,{fun cb_context:set_resp_status/2, 'success'}
+                            ])
+    catch
+        _:_ -> cb_context:setters(Context
+                                  ,[{fun cb_context:set_resp_status/2, 'error'}
+                                    ,{fun cb_context:set_resp_error_code/2, 400}
+                                    ,{fun cb_context:set_resp_error_msg/2, <<"Bad request">>}
+                                   ])
+    end;
+
 handle_post(Context, Id) ->
     case group_db:find(Id) of 
         notfound -> 
@@ -584,6 +632,20 @@ validate_request(Context, _Verb) ->
 validate_request(_Id, Context, ?HTTP_GET) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
 
+validate_request(?PATH_SEARCH, Context, ?HTTP_POST = _Verb) ->
+
+    ReqJson = cb_context:req_json(Context),
+    Context1 = cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]),
+    ValidateFuns = [
+                    fun sos_request_handler:validate_search_long/2,
+                    fun sos_request_handler:validate_search_lat/2
+    ],
+    lists:foldl(fun (F, C) ->
+                        F(ReqJson, C)
+                end,
+                Context1,
+                ValidateFuns);
+
 validate_request(_Id, Context, ?HTTP_POST = _Verb) ->
     cb_context:setters(Context, [{fun cb_context:set_resp_status/2, success}]);
 
@@ -642,9 +704,13 @@ validate_request(_Id, ?PATH_BOOKMARK, Context, _) ->
 validate_request(_Id, _Path, Context, _Verb) ->
     Context.
 
-get_sub_fields(Group) ->
-    Res = maps:to_list(Group),
-    proplists:substitute_aliases([], Res).
+get_sub_fields(Info) ->
+    Fields =  [distance],
+    maps:without(Fields, Info).
+
+get_sub_fields_search(Info)->
+    Fields =  [members, created_by, updated_by, updated_time,suggest_info],
+    maps:without(Fields, Info).
 
 errors() -> 
   Path = <<"groups">>,
