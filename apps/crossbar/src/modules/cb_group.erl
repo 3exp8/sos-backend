@@ -273,7 +273,8 @@ handle_put(Context) ->
     UserInfoFiltered = maps:with([phone_number, id, first_name, last_name],UserInfo),
     ContactInfo = zt_util:to_map(wh_json:get_value(<<"contact_info">>, ReqJson,[])),
     PhoneNumber = maps:get(phone_number, ContactInfo, <<>>),
-    case otp_handler:otp_valid(<<>>,PhoneNumber,wh_json:get_value(<<"confirm_code">>, ReqJson,<<>>)) of 
+    Role = cb_context:role(Context),
+    case otp_handler:otp_valid(Role, <<>>,PhoneNumber,wh_json:get_value(<<"confirm_code">>, ReqJson,<<>>)) of 
     true -> 
         InfoBase = get_info(ReqJson,UserId),
         AdminInfo = maps:merge(UserInfoFiltered,#{
@@ -372,8 +373,8 @@ handle_post(Context, Id) ->
                     end,
                 PhoneNumberdb = maps:get(<<"phone_number">>, ContactInfoDb, <<>>),
                 NewPhoneNumber = maps:get(<<"phone_number">>, NewContactInfo, <<>>),
-                 
-                case otp_handler:otp_valid(PhoneNumberdb,NewPhoneNumber,wh_json:get_value(<<"confirm_code">>, ReqJson, <<>>)) of 
+                Role = cb_context:role(Context),
+                case otp_handler:otp_valid(Role,PhoneNumberdb,NewPhoneNumber,wh_json:get_value(<<"confirm_code">>, ReqJson, <<>>)) of 
                     true -> 
                         NewDetailInfo = 
                             case wh_json:get_value(<<"detail_info">>, ReqJson, <<>>) of

@@ -1,9 +1,11 @@
 -module(otp_handler).
+-include("crossbar.hrl").
 
 -export([
     check_confirm_code/2,
     get_otp_expired_duration/0,
-    otp_valid/3
+    otp_valid/3,
+    otp_valid/4
 ]).
 
 check_confirm_code(_PhoneNumber, <<>>) -> invalid;
@@ -22,6 +24,12 @@ check_confirm_code(PhoneNumber, ConfirmCode)->
             end;
         _ -> invalid
     end.
+
+otp_valid(?USER_ROLE_OPERATOR, _, _, _) -> true;
+otp_valid(?USER_ROLE_ADMIN, _, _, _) -> true;
+otp_valid(_, CurrentPhoneNumber, NewPhoneNumber, ConfirmCode) -> 
+    otp_valid(CurrentPhoneNumber, NewPhoneNumber, ConfirmCode).
+
 
 otp_valid(PhoneNumber, PhoneNumber, _) -> true;
 
