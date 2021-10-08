@@ -642,6 +642,7 @@ build_search_conditions(CurLocation, ReqJson) ->
     SupportTypes = wh_json:get_value(<<"support_types">>, ReqJson, <<>>),
     ObjectStatus = wh_json:get_value(<<"object_status">>, ReqJson, <<>>),
     SupportSstatus = wh_json:get_value(<<"status">>, ReqJson, <<>>),
+    VerifyStatus = wh_json:get_value(<<"verify_status">>, ReqJson, <<>>),
     Keyword = wh_json:get_value(<<"keyword">>, ReqJson, <<>>),
     Distance = zt_util:to_integer(wh_json:get_value(<<"distance">>, ReqJson, 10)),
     SearchRequests = [
@@ -650,6 +651,7 @@ build_search_conditions(CurLocation, ReqJson) ->
         {support_types,SupportTypes},
         {object_status,ObjectStatus},
         {support_status,SupportSstatus},
+        {verify_status,VerifyStatus},
         {keyword,Keyword}
     ],
     DistanceCond = {location,'distance',{CurLocation, Distance, <<"km">>}},
@@ -681,6 +683,9 @@ build_condition(object_status, Val) ->
 build_condition(support_status, Val) -> 
     Vals = zt_util:split_string(Val),
     {<<"status">>,'in',Vals};
+
+build_condition(verify_status, Val) -> 
+    {<<"verify_status">>,Val};
 
 build_condition(keyword, Val) -> 
     {'or',[{<<"subject">>,Val},{<<"description">>,Val}]};
